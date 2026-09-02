@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#234e34">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="牧場打卡">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
+  <link rel="stylesheet" href="style.css?v=337">
+  <title>王泰山畜牧場｜員工定位自拍打卡</title>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="hero">
+      <div class="brand-row">
+        <img src="assets/wts-logo-original.png" alt="王泰山畜牧場" class="logo">
+        <div><strong>王泰山畜牧場</strong><span>員工定位・自拍・LINE 打卡</span></div>
+      </div>
+      <div class="clock-card"><span id="todayText">台灣日期</span><b id="clockText">--:--:--</b></div>
+    </header>
+
+    <section class="panel" id="setupPanel" hidden>
+      <h2>尚未完成雲端橋接設定</h2>
+      <p>請先依照 README 設定 Google Apps Script Web App，再把網址貼到 <code>config.js</code> 的 <code>bridgeUrl</code>。</p>
+    </section>
+
+    <section class="panel" id="loginPanel">
+      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><span class="badge">GitHub 員工端</span></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
+      <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" placeholder="例如 E001"></label>
+      <label>打卡 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="請輸入 PIN"></label>
+      <button class="primary" id="loginBtn" type="button">登入打卡</button>
+      <div class="status" id="loginStatus" aria-live="polite"></div>
+    </section>
+
+    <section id="punchPanel" hidden>
+      <section class="panel employee-card">
+        <div><small>目前員工</small><h2 id="employeeName">—</h2><p id="employeeMeta">—</p></div>
+        <button class="ghost" id="logoutBtn" type="button">登出</button>
+      </section>
+
+      <section class="panel">
+        <div class="section-head"><div><h2>今天要打哪一種卡？</h2><p>每次打卡都重新取得 GPS、即時自拍並要求分享照片。</p></div></div>
+        <div class="punch-grid">
+          <button class="punch-btn in" data-type="上班" type="button"><span>上班</span><b>上班打卡</b></button>
+          <button class="punch-btn out" data-type="下班" type="button"><span>下班</span><b>下班打卡</b></button>
+        </div>
+      </section>
+
+      <section class="panel flow-panel" id="flowPanel" hidden>
+        <div class="flow-title"><div><small>本次流程</small><h2 id="flowTitle">上班打卡</h2></div><button class="ghost" id="cancelBtn" type="button">取消</button></div>
+        <div class="steps">
+          <div class="step" data-step="gps"><b>1</b><span>GPS／地名</span></div>
+          <div class="step" data-step="photo"><b>2</b><span>即時自拍</span></div>
+          <div class="step" data-step="line"><b>3</b><span>分享 LINE</span></div>
+          <div class="step" data-step="submit"><b>4</b><span>回傳時間</span></div>
+        </div>
+
+        <div class="location-box" id="locationBox"><b>尚未定位</b><span>點「開始定位」取得現在位置。</span></div>
+        <button class="primary" id="locateBtn" type="button">開始定位</button>
+
+        <div class="camera-wrap" id="cameraWrap" hidden>
+          <video id="cameraVideo" autoplay playsinline muted></video>
+          <canvas id="photoCanvas" hidden></canvas>
+          <img id="photoPreview" alt="本次打卡自拍預覽" hidden>
+          <div class="face-guide" id="faceGuide"><span>臉部置中並保留現場背景</span></div>
+        </div>
+        <div class="camera-actions" id="cameraActions" hidden>
+          <button class="ghost" id="switchCameraBtn" type="button">切換鏡頭</button>
+          <button class="primary" id="takePhotoBtn" type="button">拍攝自拍</button>
+        </div>
+
+        <div class="photo-actions" id="photoActions" hidden>
+          <button class="ghost" id="retakeBtn" type="button">重新拍照</button>
+          <button class="line-btn" id="shareLineBtn" type="button">分享照片到 LINE 群組</button>
+          <a class="ghost-link" id="downloadPhotoLink" hidden download>下載照片後手動傳 LINE</a>
+        </div>
+
+        <div class="line-confirm" id="lineConfirm" hidden>
+          <b>LINE 分享已完成</b>
+          <span>分享完成後系統會自動回傳正式打卡時間；若網路失敗，可用下方按鈕重新送出。</span>
+        </div>
+        <button class="submit-punch" id="submitPunchBtn" type="button" hidden>重新送出打卡時間</button>
+        <div class="status" id="flowStatus" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head"><div><h2>本機今日紀錄</h2><p>只供手機畫面確認；正式出勤以雲端橋接與單機主系統同步資料為準。</p></div></div>
+        <div id="todayRecords" class="record-list"><p class="muted">今天尚無本機打卡紀錄。</p></div>
+      </section>
+    </section>
+  </main>
+
+  <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="打卡雲端橋接"></iframe>
+  <script src="config.js?v=337"></script>
+  <script src="app.js?v=337"></script>
+</body>
+</html>

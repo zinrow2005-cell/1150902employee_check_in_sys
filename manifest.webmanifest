@@ -1,0 +1,9 @@
+{
+  "name":"王泰山畜牧場員工打卡",
+  "short_name":"牧場打卡",
+  "start_url":"./",
+  "display":"standalone",
+  "background_color":"#eef4ef",
+  "theme_color":"#234e34",
+  "icons":[{"src":"assets/wts-logo-original.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]
+}
