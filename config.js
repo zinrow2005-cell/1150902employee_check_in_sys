@@ -1,6 +1,6 @@
 window.WTS_ATTENDANCE_CONFIG = {
   farmName: '王泰山畜牧場',
-  bridgeUrl: 'file:///C:/Users/User/Downloads/W401_FIX337_GITHUB_ATTENDANCE_FINAL_20260902/W401_FIX337_GITHUB_ATTENDANCE_FINAL_20260902/index.html',
+  bridgeUrl: 'https://zinrow2005-cell.github.io/1150902employee_check_in_sys/',
   geofence: {
     latitude: null,
     longitude: null,
