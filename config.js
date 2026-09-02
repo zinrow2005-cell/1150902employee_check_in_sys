@@ -1,6 +1,6 @@
 window.WTS_ATTENDANCE_CONFIG = {
   farmName: '王泰山畜牧場',
-  bridgeUrl: 'PASTE_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE',
+  bridgeUrl: 'file:///C:/Users/User/Downloads/W401_FIX337_GITHUB_ATTENDANCE_FINAL_20260902/W401_FIX337_GITHUB_ATTENDANCE_FINAL_20260902/index.html',
   geofence: {
     latitude: null,
     longitude: null,
