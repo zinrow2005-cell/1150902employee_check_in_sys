@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="牧場打卡">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=337">
+  <link rel="stylesheet" href="style.css?v=341">
   <title>王泰山畜牧場｜員工定位自拍打卡</title>
 </head>
 <body>
@@ -22,13 +22,16 @@
       <div class="clock-card"><span id="todayText">台灣日期</span><b id="clockText">--:--:--</b></div>
     </header>
 
-    <section class="panel" id="setupPanel" hidden>
-      <h2>尚未完成雲端橋接設定</h2>
-      <p>請先依照 README 設定 Google Apps Script Web App，再把網址貼到 <code>config.js</code> 的 <code>bridgeUrl</code>。</p>
+    <section class="panel setup-panel" id="setupPanel" hidden>
+      <div class="section-head"><div><h2>雲端橋接設定</h2><p id="setupMessage">第一次使用只要貼上 Google Apps Script 正式 /exec 網址即可，不需要修改 config.js。</p></div><span class="badge">一次設定</span></div>
+      <label>Apps Script Web App /exec 網址<input id="bridgeUrlInput" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec"></label>
+      <div class="setup-actions"><button class="primary" id="saveBridgeBtn" type="button">儲存橋接網址</button><button class="ghost" id="clearBridgeBtn" type="button">清除本機設定</button></div>
+      <p class="muted" id="bridgeSourceText">網址只保存在這台裝置；不包含 SYNC_KEY，也不包含員工 PIN。</p>
+      <div class="status" id="setupStatus" aria-live="polite"></div>
     </section>
 
     <section class="panel" id="loginPanel">
-      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><span class="badge">GitHub 員工端</span></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
+      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工端 W405</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
       <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" placeholder="例如 E001"></label>
       <label>打卡 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="請輸入 PIN"></label>
       <button class="primary" id="loginBtn" type="button">登入打卡</button>
@@ -94,7 +97,7 @@
   </main>
 
   <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="打卡雲端橋接"></iframe>
-  <script src="config.js?v=337"></script>
-  <script src="app.js?v=337"></script>
+  <script src="config.js?v=341"></script>
+  <script src="app.js?v=341"></script>
 </body>
 </html>

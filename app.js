@@ -5,7 +5,25 @@
   const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,busy:false};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
-  const bridgeReady=()=>/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec(?:\?.*)?$/i.test(String(CFG.bridgeUrl||''));
+  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v340';
+  function normalizeBridgeUrl(raw){
+    const v=String(raw||'').trim();
+    if(!v)return '';
+    if(/^https:\/\/[^/]*(?:github\.io|github\.com)(?:\/|$)/i.test(v))throw new Error('目前貼的是 GitHub Pages / GitHub 網址；橋接網址請改填 Google Apps Script Web App 的 /exec 網址。');
+    if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec\/?$/i.test(v))throw new Error('請貼 Google Apps Script 正式部署後、以 /exec 結尾的完整網址。');
+    return v.replace(/\/$/,'');
+  }
+  function bridgeFromQuery(){
+    try{const u=new URL(location.href),q=u.searchParams.get('bridge')||u.searchParams.get('bridgeUrl')||'';if(!q)return '';const n=normalizeBridgeUrl(q);localStorage.setItem(BRIDGE_STORAGE_KEY,n);u.searchParams.delete('bridge');u.searchParams.delete('bridgeUrl');history.replaceState(null,'',u.pathname+(u.search||'')+u.hash);return n;}catch(_e){return '';}
+  }
+  let bridgeUrl=bridgeFromQuery();
+  if(!bridgeUrl){try{bridgeUrl=normalizeBridgeUrl(localStorage.getItem(BRIDGE_STORAGE_KEY)||'');}catch(_e){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';}}
+  if(!bridgeUrl){try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}}
+  function bridgeConfigIssue(){
+    if(!bridgeUrl)return '尚未設定 Apps Script Web App 網址。請點「橋接設定」，直接貼上正式 /exec 網址。';
+    return '';
+  }
+  const bridgeReady=()=>!bridgeConfigIssue();
   function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   function twParts(date=new Date()){
     const dp=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
@@ -19,12 +37,12 @@
   function completeBefore(key){const order=['gps','photo','line','submit'];const i=order.indexOf(key);order.forEach((k,n)=>setStep(k,n<i?'done':n===i?'active':''));}
   function randomId(){return 'REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);}
   function postBridge(action,data={},timeoutMs=20000){
-    if(!bridgeReady())return Promise.reject(new Error('雲端橋接網址尚未設定'));
+    if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
       const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時，請確認網路後重試；重送同一筆不會重複記錄。'));},timeoutMs);
       pending.set(requestId,{resolve,reject,timer});
-      const form=document.createElement('form');form.method='POST';form.action=CFG.bridgeUrl;form.target='bridgeFrame';form.style.display='none';
+      const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});
       Object.entries(payload).forEach(([k,v])=>{const input=document.createElement('input');input.type='hidden';input.name=k;input.value=v==null?'':(typeof v==='object'?JSON.stringify(v):String(v));form.appendChild(input);});
       document.body.appendChild(form);form.submit();setTimeout(()=>form.remove(),500);
@@ -111,7 +129,12 @@
     catch(e){status($('flowStatus'),e.message,'error');}
     finally{state.busy=false;$('submitPunchBtn').disabled=false;}
   }
-  if(!bridgeReady())$('setupPanel').hidden=false;
+  function refreshBridgeSetup(){const issue=bridgeConfigIssue();const panel=$('setupPanel');const input=$('bridgeUrlInput');if(input&&!input.matches(':focus'))input.value=bridgeUrl||'';if(issue){panel.hidden=false;const el=$('setupMessage');if(el)el.textContent=issue;status($('loginStatus'),issue,'error');}else{const src=$('bridgeSourceText');if(src)src.textContent='橋接網址已設定在這台裝置。若主系統內附 config.js 也有預設網址，這台裝置的設定會優先使用。';if($('loginStatus').textContent.includes('尚未設定'))status($('loginStatus'),'','');}}
+  function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;status($('setupStatus'),'橋接網址已儲存。現在可以直接登入打卡。','ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},700);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
+  function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?'已清除這台裝置的自訂網址，改用 GitHub config.js 預設網址。':'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
+  refreshBridgeSetup();
+  $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
+  $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
   $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',shareLine);$('submitPunchBtn').addEventListener('click',submitPunch);document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});restoreEmployee();
 })();

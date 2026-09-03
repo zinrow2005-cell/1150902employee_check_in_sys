@@ -1,45 +1,33 @@
-# GitHub Pages 員工定位自拍打卡端｜正式部署說明
+# W405 FIX341｜GitHub 員工定位自拍打卡端
 
-## 對應版本
-- GitHub 打卡端：W401 FIX337
-- 單機主系統：W401 FIX337
-- Apps Script 橋接端：W402 FIX338
+## 正式打卡網址
 
-## GitHub 只需要上傳本資料夾內容
-必須包含：
-- index.html
-- app.js
-- style.css
-- config.js
-- sw.js
-- manifest.webmanifest
-- .nojekyll
+`https://zinrow2005-cell.github.io/1150902employee_check_in_sys/`
 
-## 只需要修改 config.js
-找到：
-`bridgeUrl: 'PASTE_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE'`
+## 建議設定方式：從單機主系統直接帶入 /exec
 
-改成你的 Apps Script 正式 `/exec` 網址，例如：
-`bridgeUrl: 'https://script.google.com/macros/s/你的部署ID/exec'`
+1. 單機主系統 → 出勤管理中心 → GitHub 員工打卡橋接。
+2. 貼上 Google Apps Script 正式 Web App `/exec` 網址。
+3. 填同步金鑰、勾啟用並儲存。
+4. 按「開啟並自動帶入 /exec」，或複製「一次設定連結」傳到員工手機。
+5. GitHub 打卡頁會把合法 `/exec` 保存到該裝置，網址中的 `?bridge=` 會自動移除。
 
-注意：
-- 不可填 `/dev`
-- 不要把 SYNC_KEY 放進 config.js
-- 不要把員工 PIN 寫死在 GitHub
+## 也可以在員工打卡頁直接設定
 
-## 員工登入
-員工使用主系統建立的：
-- 員工編號
-- 6 位 PIN
+點「橋接設定」→ 貼 Apps Script `/exec` →「儲存橋接網址」。不需要修改 `config.js`。
 
-帳號由單機主系統同步到 Apps Script，不需要手動維護 GitHub 名單。
+## GitHub 上傳方式
 
-## 打卡流程
-登入 → GPS 定位／地名 → 上班或下班 → 即時自拍 → 分享到 LINE 群組 → 回到頁面完成打卡。
+本 ZIP 已整理成 **Repository 根目錄直接上傳版**。解壓縮後，把 `index.html`、`app.js`、`style.css`、`config.js`、`sw.js`、`manifest.webmanifest`、`.nojekyll` 與 `assets/` 直接覆蓋到 Repository `1150902employee_check_in_sys` 根目錄。
 
-## Apps Script 權限
-Web App 必須設定：
+## 安全
+
+- `SYNC_KEY` 只保存在單機主系統與 Apps Script Script Properties。
+- 員工 6 位 PIN 由主系統同步到 Apps Script，不寫死在 GitHub。
+- GitHub 端只需要 Apps Script `/exec` 公開端點。
+
+## Apps Script 部署
+
 - 執行身分：我
 - 誰可以存取：任何人
-
-可先用未登入 Google 的無痕視窗開啟 `/exec` 測試；正常會看到 health JSON。
+- 網址必須使用正式 `/exec`，不可使用 `/dev`
