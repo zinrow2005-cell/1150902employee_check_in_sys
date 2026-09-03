@@ -5,7 +5,7 @@
   const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,busy:false};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
-  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v340';
+  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v342';
   function normalizeBridgeUrl(raw){
     const v=String(raw||'').trim();
     if(!v)return '';
@@ -40,7 +40,7 @@
     if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時，請確認網路後重試；重送同一筆不會重複記錄。'));},timeoutMs);
+      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳登入結果。請確認已更新 W406 Code.gs 並重新部署新版本；重送同一筆不會重複記錄。'));},timeoutMs);
       pending.set(requestId,{resolve,reject,timer});
       const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});

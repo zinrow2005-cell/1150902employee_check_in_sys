@@ -1,5 +1,5 @@
-const CACHE='wts-attendance-fix341-v1';
-const ASSETS=['./','index.html','style.css?v=341','app.js?v=341','config.js?v=341','manifest.webmanifest','assets/wts-logo-original.png'];
+const CACHE='wts-attendance-fix342-v1';
+const ASSETS=['./','index.html','style.css?v=342','app.js?v=342','config.js?v=342','manifest.webmanifest','assets/wts-logo-original.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./'))));});
