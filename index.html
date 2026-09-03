@@ -9,11 +9,11 @@
   <meta name="apple-mobile-web-app-title" content="牧場打卡">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=344">
+  <link rel="stylesheet" href="style.css?v=346">
   <title>王泰山畜牧場｜員工定位自拍打卡</title>
 </head>
 <body>
-<!-- W406 compatibility marker: GitHub 員工端 W406 | config.js?v=342 | app.js?v=342 -->
+<!-- W410 FIX346：拍照確認→LINE→回傳文字資料；雙層防連點／防重複 -->
   <main class="app-shell">
     <header class="hero">
       <div class="brand-row">
@@ -32,7 +32,7 @@
     </section>
 
     <section class="panel" id="loginPanel">
-      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工端 W408</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
+      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工端 W410</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
       <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" placeholder="例如 E001"></label>
       <label>打卡 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="請輸入 PIN"></label>
       <button class="primary" id="loginBtn" type="button">登入打卡</button>
@@ -51,6 +51,7 @@
           <button class="punch-btn in" data-type="上班" type="button"><span>上班</span><b>上班打卡</b></button>
           <button class="punch-btn out" data-type="下班" type="button"><span>下班</span><b>下班打卡</b></button>
         </div>
+        <div class="status" id="punchGuardStatus" aria-live="polite"></div>
       </section>
 
       <section class="panel flow-panel" id="flowPanel" hidden>
@@ -69,6 +70,11 @@
           <video id="cameraVideo" autoplay playsinline muted></video>
           <canvas id="photoCanvas" hidden></canvas>
           <img id="photoPreview" alt="本次打卡自拍預覽" hidden>
+          <div class="camera-stamp" id="cameraStamp">
+            <b id="cameraStampFarm">王泰山畜牧場</b>
+            <span id="cameraStampLocation">等待定位地址</span>
+            <span id="cameraStampTime">台灣時間 --:--:--</span>
+          </div>
           <div class="face-guide" id="faceGuide"><span>臉部置中並保留現場背景</span></div>
         </div>
         <div class="camera-actions" id="cameraActions" hidden>
@@ -78,13 +84,16 @@
 
         <div class="photo-actions" id="photoActions" hidden>
           <button class="ghost" id="retakeBtn" type="button">重新拍照</button>
-          <button class="line-btn" id="shareLineBtn" type="button">分享照片到 LINE 群組</button>
-          <a class="ghost-link" id="downloadPhotoLink" hidden download>下載照片後手動傳 LINE</a>
+          <button class="line-btn" id="shareLineBtn" type="button">傳到 LINE 並完成打卡</button>
+          <a class="ghost-link" id="downloadPhotoLink" hidden download>下載／儲存自拍照片</a>
+          <button class="ghost line-open-btn" id="openLineBtn" type="button" hidden>沒有看到 LINE？開啟 LINE 分享畫面</button>
+          <button class="line-btn" id="manualLineBtn" type="button" hidden>我已把照片傳到 LINE 群組</button>
+          <p class="share-note" id="shareNote">照片不會上傳主系統。確認傳到 LINE 後，系統只回傳時間、GPS、定位地址與打卡類型。</p>
         </div>
 
         <div class="line-confirm" id="lineConfirm" hidden>
           <b>LINE 分享已完成</b>
-          <span>分享完成後系統會自動回傳正式打卡時間；若網路失敗，可用下方按鈕重新送出。</span>
+          <span>確認後系統只回傳打卡時間、GPS 與定位地址；自拍照片不會回傳主系統。</span>
         </div>
         <button class="submit-punch" id="submitPunchBtn" type="button" hidden>重新送出打卡時間</button>
         <div class="status" id="flowStatus" aria-live="polite"></div>
@@ -97,8 +106,31 @@
     </section>
   </main>
 
+
+  <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle">
+    <div class="confirm-card">
+      <span class="confirm-kicker">自拍完成</span>
+      <h2 id="photoConfirmTitle">是否將照片傳到 LINE 群組並完成打卡？</h2>
+      <div class="confirm-summary" id="photoConfirmSummary"></div>
+      <p>按「傳到 LINE」後會開啟手機分享面板。請選 LINE 與指定工作群組；確認分享成功後，系統才會把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p>
+      <div class="status" id="photoConfirmStatus" aria-live="polite"></div>
+      <button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>傳到 LINE 群組並完成打卡</button>
+      <div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">重新拍照</button><button class="ghost" id="photoConfirmCancelBtn" type="button">暫不傳送</button></div>
+    </div>
+  </div>
+
+  <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle">
+    <div class="confirm-card">
+      <span class="confirm-kicker">LINE 分享確認</span>
+      <h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2>
+      <p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p>
+      <button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button>
+      <div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div>
+    </div>
+  </div>
+
   <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="打卡雲端橋接"></iframe>
-  <script src="config.js?v=344"></script>
-  <script src="app.js?v=344"></script>
+  <script src="config.js?v=346"></script>
+  <script src="app.js?v=346"></script>
 </body>
 </html>

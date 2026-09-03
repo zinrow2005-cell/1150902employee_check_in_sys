@@ -1,4 +1,3 @@
-W408 FIX344
-GitHub employee attendance client
-Bridge return fix: window.top.postMessage + health self-test
+W410 FIX346
+GitHub 員工端正式發布版
 2026-09-03
