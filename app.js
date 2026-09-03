@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W410 FIX346：拍照確認→LINE→回傳文字資料；雙層防連點／防重複
+  // W412 FIX348：拍照後先完整預覽，確認照片後才進 LINE 分享；沿用雙層防連點／防重複
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -44,7 +44,7 @@
     if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳登入結果。請確認已更新 W408 Code.gs 並重新部署新版本；重送同一筆不會重複記錄。'));},timeoutMs);
+      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳結果。請確認目前正式版 Code.gs 已部署為新版本；重送同一筆不會重複記錄。'));},timeoutMs);
       pending.set(requestId,{resolve,reject,timer});
       const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});
@@ -79,7 +79,7 @@
   function updateCameraStamp(){const now=twParts();if($('cameraStampFarm'))$('cameraStampFarm').textContent=CFG.farmName||'王泰山畜牧場';if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';if($('cameraStampTime'))$('cameraStampTime').textContent=`台灣時間 ${now.date} ${now.time}`;}
   function startCameraStamp(){updateCameraStamp();if(state.cameraStampTimer)clearInterval(state.cameraStampTimer);state.cameraStampTimer=setInterval(updateCameraStamp,1000);if($('cameraStamp'))$('cameraStamp').hidden=false;}
   function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}}
-  function clearPhoto(){if(state.photoUrl)URL.revokeObjectURL(state.photoUrl);state.photoUrl='';state.photoBlob=null;state.photoTakenAt='';state.lineShared=false;state.lineShareMethod='';state.shareBusy=false;state.lastShareAttemptAt=0;closeConfirm('photoConfirmOverlay');closeConfirm('lineResultOverlay');$('photoPreview').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;$('faceGuide').hidden=false;if($('cameraStamp'))$('cameraStamp').hidden=false;$('photoActions').hidden=true;$('lineConfirm').hidden=true;$('submitPunchBtn').hidden=true;$('downloadPhotoLink').hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;}
+  function clearPhoto(){if(state.photoUrl)URL.revokeObjectURL(state.photoUrl);state.photoUrl='';state.photoBlob=null;state.photoTakenAt='';state.lineShared=false;state.lineShareMethod='';state.shareBusy=false;state.lastShareAttemptAt=0;closeConfirm('photoReviewOverlay');closeConfirm('photoConfirmOverlay');closeConfirm('lineResultOverlay');$('photoPreview').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;$('faceGuide').hidden=false;if($('cameraStamp'))$('cameraStamp').hidden=false;$('photoActions').hidden=true;if($('photoReviewBox'))$('photoReviewBox').hidden=true;$('lineConfirm').hidden=true;$('submitPunchBtn').hidden=true;$('downloadPhotoLink').hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;}
   function cancelFlow(){stopCamera();clearPhoto();state.type='';state.location=null;state.locationLabel='';$('flowPanel').hidden=true;status($('flowStatus'),'');}
   function beginFlow(type){const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
   function geoDistanceM(lat1,lon1,lat2,lon2){const R=6371000,r=Math.PI/180,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;const a=Math.sin(dLat/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
@@ -116,6 +116,15 @@
   function canvasLooksBlank(ctx,w,h){try{const pts=[[.2,.2],[.5,.2],[.8,.2],[.2,.5],[.5,.5],[.8,.5],[.2,.8],[.5,.8],[.8,.8]];let total=0,max=0;for(const [px,py] of pts){const d=ctx.getImageData(Math.max(0,Math.min(w-1,Math.floor(w*px))),Math.max(0,Math.min(h-1,Math.floor(h*py))),1,1).data;const v=d[0]+d[1]+d[2];total+=v;if(v>max)max=v;}return max<12&&total<50;}catch(_e){return false;}}
   function openConfirm(id){const el=$(id);if(el){el.hidden=false;document.body.classList.add('modal-open');const b=el.querySelector('button[data-autofocus]');if(b)setTimeout(()=>b.focus(),20);}}
   function closeConfirm(id){const el=$(id);if(el)el.hidden=true;if(!document.querySelector('.confirm-overlay:not([hidden])'))document.body.classList.remove('modal-open');}
+  function showPhotoReviewOverlay(){
+    const src=$('photoCanvas'),dst=$('photoReviewCanvas');
+    if(!src||!dst||!src.width||!src.height)return;
+    dst.width=src.width;dst.height=src.height;
+    const dctx=dst.getContext('2d',{alpha:false});
+    dctx.drawImage(src,0,0,dst.width,dst.height);
+    openConfirm('photoReviewOverlay');
+    requestAnimationFrame(()=>{try{$('photoReviewTitle').scrollIntoView({block:'start',behavior:'auto'});}catch(_e){}});
+  }
   function cooldownKey(kind,type=''){return `wts_att_cd_${kind}_${state.employee?.id||'EMP'}${type?'_'+type:''}`;}
   function readTs(k){const n=Number(localStorage.getItem(k)||0);return Number.isFinite(n)?n:0;}
   function secondsLeft(ms){return Math.max(1,Math.ceil(ms/1000));}
@@ -141,10 +150,22 @@
       if(blank)throw new Error('相機這一格沒有取得影像，已保留鏡頭畫面；請再按一次「拍攝自拍」。');
       const now=twParts();state.photoTakenAt=now.dateTime;const bandH=Math.max(170,Math.round(h*.21));ctx.fillStyle='rgba(10,24,15,.78)';ctx.fillRect(0,h-bandH,w,bandH);ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.035))}px sans-serif`;ctx.fillText(`${CFG.farmName||'王泰山畜牧場'}｜${state.type}打卡`,24,h-bandH+42);ctx.font=`600 ${Math.max(20,Math.round(w*.028))}px sans-serif`;ctx.fillText(`${state.employee?.name||state.employee?.id||'員工'}｜${now.dateTime} 台灣時間`,24,h-bandH+82);ctx.font=`500 ${Math.max(17,Math.round(w*.023))}px sans-serif`;let y=h-bandH+118;wrapText(ctx,state.locationLabel,w-48).forEach(line=>{ctx.fillText(line,24,y);y+=Math.max(24,Math.round(w*.03));});
       const blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',0.88));if(!blob)throw new Error('照片建立失敗，請重新拍照。');
-      state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;v.hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;const dl=$('downloadPhotoLink');dl.href=state.photoUrl;dl.download=`WTS_${state.employee?.id||'EMP'}_${state.type}_${now.date.replaceAll('-','')}_${Date.now()}.jpg`;dl.hidden=false;if($('openLineBtn'))$('openLineBtn').hidden=false;if($('manualLineBtn'))$('manualLineBtn').hidden=true;stopCamera();setStep('photo','done');setStep('line','active');status($('flowStatus'),'自拍完成。請確認是否傳到 LINE 群組並完成打卡。','ok');beginPhotoConfirmation();
+      state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;v.hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;if($('photoReviewBox'))$('photoReviewBox').hidden=false;const dl=$('downloadPhotoLink');dl.href=state.photoUrl;dl.download=`WTS_${state.employee?.id||'EMP'}_${state.type}_${now.date.replaceAll('-','')}_${Date.now()}.jpg`;dl.hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;stopCamera();setStep('photo','active');setStep('line','');status($('flowStatus'),'自拍完成，尚未傳送。系統已開啟照片預覽；請先確認照片，再決定重拍或使用這張。','ok');showPhotoReviewOverlay();
     }catch(e){status($('flowStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}
   }
+  function reviewPhotoAndAskLineShare(){
+    if(!state.photoBlob){status($('flowStatus'),'目前沒有可用的自拍照片，請重新拍攝。','error');return;}
+    setStep('photo','done');setStep('line','active');
+    status($('flowStatus'),'已選用這張照片。請再次確認是否傳到 LINE 群組並完成打卡。','ok');
+    beginPhotoConfirmation();
+  }
+  function acceptPhotoFromReview(){
+    if(!state.photoBlob){closeConfirm('photoReviewOverlay');status($('flowStatus'),'目前沒有可用的自拍照片，請重新拍攝。','error');return;}
+    closeConfirm('photoReviewOverlay');
+    reviewPhotoAndAskLineShare();
+  }
+  function retakeFromReview(){closeConfirm('photoReviewOverlay');startCamera();}
   function lineShareText(){return `${CFG.farmName||'王泰山畜牧場'}｜${state.type}打卡\n${state.employee?.name||state.employee?.id||'員工'}\n${state.photoTakenAt} 台灣時間\n${state.locationLabel}`;}
   function revealManualLine(){if($('openLineBtn'))$('openLineBtn').hidden=false;if($('manualLineBtn'))$('manualLineBtn').hidden=false;}
   function lineShareGuard(){const left=LINE_SHARE_COOLDOWN_MS-(Date.now()-state.lastShareAttemptAt);return state.lastShareAttemptAt&&left>0?left:0;}
@@ -205,6 +226,6 @@
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
-  $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',shareLine);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>closeConfirm('photoConfirmOverlay'));$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
+  $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});restoreEmployee();
 })();

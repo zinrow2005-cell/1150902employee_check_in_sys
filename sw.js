@@ -1,6 +1,6 @@
-// W410 FIX346
-const CACHE='wts-attendance-fix346-v1';
-const ASSETS=['./','index.html','style.css?v=346','app.js?v=346','config.js?v=346','manifest.webmanifest','assets/wts-logo-original.png'];
+// W412 FIX348
+const CACHE='wts-attendance-fix348-v1';
+const ASSETS=['./','index.html','style.css?v=348','app.js?v=348','config.js?v=348','manifest.webmanifest','assets/wts-logo-original.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./'))));});
