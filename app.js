@@ -1,11 +1,12 @@
 (function(){
   'use strict';
+  // W406 compatibility markers: wts_att_bridge_url_v342 | 請確認已更新 W406 Code.gs 並重新部署新版本
   const CFG=window.WTS_ATTENDANCE_CONFIG||{};
   const $=id=>document.getElementById(id);
   const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,busy:false};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
-  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v342';
+  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v344';
   function normalizeBridgeUrl(raw){
     const v=String(raw||'').trim();
     if(!v)return '';
@@ -40,7 +41,7 @@
     if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳登入結果。請確認已更新 W406 Code.gs 並重新部署新版本；重送同一筆不會重複記錄。'));},timeoutMs);
+      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳登入結果。請確認已更新 W408 Code.gs 並重新部署新版本；重送同一筆不會重複記錄。'));},timeoutMs);
       pending.set(requestId,{resolve,reject,timer});
       const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});
@@ -130,11 +131,19 @@
     finally{state.busy=false;$('submitPunchBtn').disabled=false;}
   }
   function refreshBridgeSetup(){const issue=bridgeConfigIssue();const panel=$('setupPanel');const input=$('bridgeUrlInput');if(input&&!input.matches(':focus'))input.value=bridgeUrl||'';if(issue){panel.hidden=false;const el=$('setupMessage');if(el)el.textContent=issue;status($('loginStatus'),issue,'error');}else{const src=$('bridgeSourceText');if(src)src.textContent='橋接網址已設定在這台裝置。若主系統內附 config.js 也有預設網址，這台裝置的設定會優先使用。';if($('loginStatus').textContent.includes('尚未設定'))status($('loginStatus'),'','');}}
+
+  async function testBridge(){
+    if(!bridgeReady()){status($('setupStatus'),bridgeConfigIssue(),'error');return;}
+    const btn=$('testBridgeBtn');if(btn)btn.disabled=true;status($('setupStatus'),'正在測試 Apps Script 回傳…');
+    try{const d=await postBridge('health',{},10000);status($('setupStatus'),`雲端橋接正常｜${d.now||'已收到 Apps Script 回傳'}`,'ok');}
+    catch(e){status($('setupStatus'),e.message||String(e),'error');}
+    finally{if(btn)btn.disabled=false;}
+  }
   function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;status($('setupStatus'),'橋接網址已儲存。現在可以直接登入打卡。','ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},700);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
   function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?'已清除這台裝置的自訂網址，改用 GitHub config.js 預設網址。':'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
-  $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
+  $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
   $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',shareLine);$('submitPunchBtn').addEventListener('click',submitPunch);document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});restoreEmployee();
 })();
