@@ -1,8 +1,8 @@
-// W412 FIX348｜正式橋接網址已預設。
-// 此網址不是密碼；管理同步金鑰與員工 PIN 不會放在 GitHub。
-// 若未來 Apps Script /exec 更換，可在員工打卡頁「橋接設定」直接覆蓋本機設定。
+// W417 FIX353｜正式 Apps Script /exec 已內建。
+// 此檔只保存公開 Web App /exec 與一般介面設定；管理同步密鑰與員工 PIN 不寫入此檔。
+// W417 員工自助中心使用新的本機橋接設定版本，更新後不會再沿用舊版本儲存的 /exec。
 window.WTS_ATTENDANCE_CONFIG = {
-  bridgeUrl: 'https://script.google.com/macros/s/AKfycbyOfvV3_HsZH7N585dcTo5ZlOkrCrzcDKcLAykx6gZp0T3QBFBYjkYLK4ULkKmSwngQ/exec',
+  bridgeUrl: 'https://script.google.com/macros/s/AKfycbweCm0CSnnzpKHi9CA8KecTmKbl40NKLJsyn48w0A5RCrKFlksdYIQK2k4LKm0naYoBbg/exec',
   farmName: '王泰山畜牧場',
   requireGps: true,
   requireLineShare: true

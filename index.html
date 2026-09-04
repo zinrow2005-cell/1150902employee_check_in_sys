@@ -6,150 +6,101 @@
   <meta name="theme-color" content="#234e34">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="牧場打卡">
+  <meta name="apple-mobile-web-app-title" content="員工自助中心">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=348">
-  <title>王泰山畜牧場｜員工定位自拍打卡</title>
+  <link rel="stylesheet" href="style.css?v=353">
+  <title>王泰山畜牧場｜員工自助中心</title>
 </head>
 <body>
-<!-- W412 FIX348：拍照完成後先檢視，再決定重拍或進入 LINE 分享；沿用雙層防連點／防重複 -->
-  <main class="app-shell">
-    <header class="hero">
-      <div class="brand-row">
-        <img src="assets/wts-logo-original.png" alt="王泰山畜牧場" class="logo">
-        <div><strong>王泰山畜牧場</strong><span>員工定位・自拍・LINE 打卡</span></div>
-      </div>
-      <div class="clock-card"><span id="todayText">台灣日期</span><b id="clockText">--:--:--</b></div>
-    </header>
+<!-- W417 FIX353：原主系統員工自助端第二階段｜工作月曆／工作任務／正式薪資單安全查詢＋定位自拍打卡 -->
+<main class="app-shell">
+  <header class="hero">
+    <div class="brand-row"><img src="assets/wts-logo-original.png" alt="王泰山畜牧場" class="logo"><div><strong>王泰山畜牧場</strong><span>員工自助中心｜打卡・班表・任務・申請・薪資</span></div></div>
+    <div class="clock-card"><span id="todayText">台灣日期</span><b id="clockText">--:--:--</b></div>
+  </header>
 
-    <section class="panel setup-panel" id="setupPanel" hidden>
-      <div class="section-head"><div><h2>雲端橋接設定</h2><p id="setupMessage">第一次使用只要貼上 Google Apps Script 正式 /exec 網址即可，不需要修改 config.js。GitHub Pages 自己的網址不用貼進 config.js。</p></div><span class="badge">一次設定</span></div>
-      <label>Apps Script Web App /exec 網址<input id="bridgeUrlInput" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec"></label>
-      <div class="setup-actions"><button class="primary" id="saveBridgeBtn" type="button">儲存橋接網址</button><button class="ghost" id="testBridgeBtn" type="button">測試雲端橋接</button><button class="ghost" id="clearBridgeBtn" type="button">清除本機設定</button></div>
-      <p class="muted" id="bridgeSourceText">網址只保存在這台裝置；不包含 SYNC_KEY，也不包含員工 PIN。</p>
-      <div class="status" id="setupStatus" aria-live="polite"></div>
+  <section class="panel setup-panel" id="setupPanel" hidden>
+    <div class="section-head"><div><h2>雲端橋接設定</h2><p id="setupMessage">Apps Script /exec 已內建；只有未來更換部署網址時才需要修改。</p></div><span class="badge">管理設定</span></div>
+    <label>Apps Script Web App /exec 網址<input id="bridgeUrlInput" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec"></label>
+    <div class="setup-actions"><button class="primary" id="saveBridgeBtn" type="button">儲存橋接網址</button><button class="ghost" id="testBridgeBtn" type="button">測試雲端橋接</button><button class="ghost" id="clearBridgeBtn" type="button">清除本機設定</button></div>
+    <p class="muted" id="bridgeSourceText">網址不含 SYNC_KEY，也不包含員工 PIN。</p><div class="status" id="setupStatus" aria-live="polite"></div>
+  </section>
+
+  <section class="panel" id="loginPanel">
+    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W417</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
+    <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。PIN 不儲存在手機。</span></div>
+    <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" placeholder="例如 E001"></label>
+    <label>6 位 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="請輸入 PIN"></label>
+    <button class="primary" id="loginBtn" type="button">登入員工自助中心</button><div class="status" id="loginStatus" aria-live="polite"></div>
+  </section>
+
+  <section id="punchPanel" hidden>
+    <section class="panel employee-card portal-employee-card"><div><small>目前登入</small><h2 id="employeeName">—</h2><p id="employeeMeta">—</p></div><div class="employee-actions"><button class="ghost" id="refreshPortalBtn" type="button">重新整理</button><button class="ghost" id="logoutBtn" type="button">登出</button></div></section>
+
+    <section class="portal-view" id="portalHomeView">
+      <section class="panel portal-welcome"><div class="section-head"><div><h2>我的首頁</h2><p id="portalSyncText">正在讀取單機主系統同步的員工資料…</p></div><span class="badge" id="portalStatusBadge">同步中</span></div>
+        <div class="portal-summary-grid"><div class="portal-summary"><small>今日打卡</small><b id="homePunchStatus">讀取中</b><span>正式時間以 Apps Script 為準</span></div><div class="portal-summary"><small>今日班表</small><b id="homeScheduleStatus">—</b><span>本人已發布工作月曆</span></div><div class="portal-summary"><small>待辦任務</small><b id="homeWorkTasks">—</b><span>本人已指派工作</span></div><div class="portal-summary"><small>待處理申請</small><b id="homePendingRequests">—</b><span>請假／補卡／加班</span></div><div class="portal-summary"><small>特休可用</small><b id="homeAnnualLeave">—</b><span>主系統試算</span></div><div class="portal-summary"><small>正式薪資單</small><b id="homePayslipMonths">—</b><span>需再次輸入 PIN 查詢</span></div></div>
+      </section>
+      <section class="panel"><div class="section-head"><div><h2>常用功能</h2><p>功能沿用原本主系統的員工自助端概念，改由 GitHub＋Apps Script 橋接。</p></div></div><div class="portal-actions"><button data-open-view="punch">📷 定位自拍打卡<small>上班／下班＋LINE</small></button><button data-open-view="schedule">📅 工作月曆／班表<small>查看個人已發布班表</small></button><button data-open-view="tasks">📋 我的工作任務<small>查看指派與回報完成</small></button><button data-open-view="attendance">🕘 我的出勤<small>查看近期上下班紀錄</small></button><button data-open-view="requests">📝 請假與申請<small>請假／補卡／加班</small></button><button data-open-view="payroll">💰 正式薪資單<small>再次輸入 PIN 安全查詢</small></button><button data-open-view="profile">👤 我的資料<small>只顯示本人可查看資料</small></button></div></section>
+      <section class="panel"><h2>最新申請</h2><div id="homeRequestList" class="record-list"><p class="muted">尚無申請。</p></div></section>
     </section>
 
-    <section class="panel" id="loginPanel">
-      <div class="section-head"><div><h1>員工登入</h1><p>請輸入主管在「單機主系統 → 員工管理中心」建立的員工編號與 6 位打卡 PIN；PIN 不儲存在手機。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工端 W412</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div><div class="login-help"><b>不知道員工編號或 PIN？</b><span>請向主管索取。主管可在主系統的「員工管理中心 → GitHub 定位打卡帳號」查看、複製或重設。</span></div>
-      <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" placeholder="例如 E001"></label>
-      <label>打卡 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="請輸入 PIN"></label>
-      <button class="primary" id="loginBtn" type="button">登入打卡</button>
-      <div class="status" id="loginStatus" aria-live="polite"></div>
-    </section>
-
-    <section id="punchPanel" hidden>
-      <section class="panel employee-card">
-        <div><small>目前員工</small><h2 id="employeeName">—</h2><p id="employeeMeta">—</p></div>
-        <button class="ghost" id="logoutBtn" type="button">登出</button>
-      </section>
-
-      <section class="panel">
-        <div class="section-head"><div><h2>今天要打哪一種卡？</h2><p>每次打卡都重新取得 GPS、即時自拍並要求分享照片。</p></div></div>
-        <div class="punch-grid">
-          <button class="punch-btn in" data-type="上班" type="button"><span>上班</span><b>上班打卡</b></button>
-          <button class="punch-btn out" data-type="下班" type="button"><span>下班</span><b>下班打卡</b></button>
-        </div>
-        <div class="status" id="punchGuardStatus" aria-live="polite"></div>
-      </section>
-
+    <section class="portal-view" id="portalPunchView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>定位自拍打卡</h2><p>每次重新取得 GPS、即時自拍；自拍照片只傳 LINE 群組，主系統不保存照片。</p></div></div><div class="punch-grid"><button class="punch-btn in" data-type="上班" type="button"><span>上班</span><b>上班打卡</b></button><button class="punch-btn out" data-type="下班" type="button"><span>下班</span><b>下班打卡</b></button></div><div class="status" id="punchGuardStatus" aria-live="polite"></div></section>
       <section class="panel flow-panel" id="flowPanel" hidden>
         <div class="flow-title"><div><small>本次流程</small><h2 id="flowTitle">上班打卡</h2></div><button class="ghost" id="cancelBtn" type="button">取消</button></div>
-        <div class="steps">
-          <div class="step" data-step="gps"><b>1</b><span>GPS／地名</span></div>
-          <div class="step" data-step="photo"><b>2</b><span>即時自拍</span></div>
-          <div class="step" data-step="line"><b>3</b><span>分享 LINE</span></div>
-          <div class="step" data-step="submit"><b>4</b><span>回傳時間</span></div>
-        </div>
-
-        <div class="location-box" id="locationBox"><b>尚未定位</b><span>點「開始定位」取得現在位置。</span></div>
-        <button class="primary" id="locateBtn" type="button">開始定位</button>
-
-        <div class="camera-wrap" id="cameraWrap" hidden>
-          <video id="cameraVideo" autoplay playsinline muted></video>
-          <canvas id="photoCanvas" hidden></canvas>
-          <img id="photoPreview" alt="本次打卡自拍預覽" hidden>
-          <div class="camera-stamp" id="cameraStamp">
-            <b id="cameraStampFarm">王泰山畜牧場</b>
-            <span id="cameraStampLocation">等待定位地址</span>
-            <span id="cameraStampTime">台灣時間 --:--:--</span>
-          </div>
-          <div class="face-guide" id="faceGuide"><span>臉部置中並保留現場背景</span></div>
-        </div>
-        <div class="camera-actions" id="cameraActions" hidden>
-          <button class="ghost" id="switchCameraBtn" type="button">切換鏡頭</button>
-          <button class="primary" id="takePhotoBtn" type="button">拍攝自拍</button>
-        </div>
-
-        <div class="photo-review-box" id="photoReviewBox" hidden>
-          <b>照片預覽｜尚未傳送</b>
-          <span>請先確認本人、現場背景、王泰山畜牧場、定位地址與時間都清楚。這個階段不會傳 LINE，也不會建立打卡紀錄。</span>
-        </div>
-        <div class="photo-actions" id="photoActions" hidden>
-          <button class="ghost" id="retakeBtn" type="button">照片不滿意｜重新拍照</button>
-          <button class="line-btn" id="shareLineBtn" type="button">這張可以｜下一步</button>
-          <a class="ghost-link" id="downloadPhotoLink" hidden download>下載／儲存自拍照片</a>
-          <button class="ghost line-open-btn" id="openLineBtn" type="button" hidden>沒有看到 LINE？開啟 LINE 分享畫面</button>
-          <button class="line-btn" id="manualLineBtn" type="button" hidden>我已把照片傳到 LINE 群組</button>
-          <p class="share-note" id="shareNote">照片不會上傳主系統。確認傳到 LINE 後，系統只回傳時間、GPS、定位地址與打卡類型。</p>
-        </div>
-
-        <div class="line-confirm" id="lineConfirm" hidden>
-          <b>LINE 分享已完成</b>
-          <span>確認後系統只回傳打卡時間、GPS 與定位地址；自拍照片不會回傳主系統。</span>
-        </div>
-        <button class="submit-punch" id="submitPunchBtn" type="button" hidden>重新送出打卡時間</button>
-        <div class="status" id="flowStatus" aria-live="polite"></div>
+        <div class="steps"><div class="step" data-step="gps"><b>1</b><span>GPS／地名</span></div><div class="step" data-step="photo"><b>2</b><span>即時自拍</span></div><div class="step" data-step="line"><b>3</b><span>分享 LINE</span></div><div class="step" data-step="submit"><b>4</b><span>回傳時間</span></div></div>
+        <div class="location-box" id="locationBox"><b>尚未定位</b><span>點「開始定位」取得現在位置。</span></div><button class="primary" id="locateBtn" type="button">開始定位</button>
+        <div class="camera-wrap" id="cameraWrap" hidden><video id="cameraVideo" autoplay playsinline muted></video><canvas id="photoCanvas" hidden></canvas><img id="photoPreview" alt="本次打卡自拍預覽" hidden><div class="camera-stamp" id="cameraStamp"><b id="cameraStampFarm">王泰山畜牧場</b><span id="cameraStampLocation">等待定位地址</span><span id="cameraStampTime">台灣時間 --:--:--</span></div><div class="face-guide" id="faceGuide"><span>臉部置中並保留現場背景</span></div></div>
+        <div class="camera-actions" id="cameraActions" hidden><button class="ghost" id="switchCameraBtn" type="button">切換鏡頭</button><button class="primary" id="takePhotoBtn" type="button">拍攝自拍</button></div>
+        <div class="photo-review-box" id="photoReviewBox" hidden><b>照片預覽｜尚未傳送</b><span>先確認照片拍得清楚，再決定重拍或使用這張。</span></div>
+        <div class="photo-actions" id="photoActions" hidden><button class="ghost" id="retakeBtn" type="button">照片不滿意｜重新拍照</button><button class="line-btn" id="shareLineBtn" type="button">這張可以｜下一步</button><a class="ghost-link" id="downloadPhotoLink" hidden download>下載／儲存自拍照片</a><button class="ghost line-open-btn" id="openLineBtn" type="button" hidden>沒有看到 LINE？開啟 LINE 分享畫面</button><button class="line-btn" id="manualLineBtn" type="button" hidden>我已把照片傳到 LINE 群組</button><p class="share-note" id="shareNote">確認傳到 LINE 後，只回傳時間、GPS、定位地址與打卡類型。</p></div>
+        <div class="line-confirm" id="lineConfirm" hidden><b>LINE 分享已完成</b><span>確認後只回傳打卡文字資料。</span></div><button class="submit-punch" id="submitPunchBtn" type="button" hidden>重新送出打卡時間</button><div class="status" id="flowStatus" aria-live="polite"></div>
       </section>
-
-      <section class="panel">
-        <div class="section-head"><div><h2>本機今日紀錄</h2><p>只供手機畫面確認；正式出勤以雲端橋接與單機主系統同步資料為準。</p></div></div>
-        <div id="todayRecords" class="record-list"><p class="muted">今天尚無本機打卡紀錄。</p></div>
-      </section>
+      <section class="panel"><div class="section-head"><div><h2>本機今日紀錄</h2><p>正式出勤以雲端橋接與主系統同步資料為準。</p></div></div><div id="todayRecords" class="record-list"><p class="muted">今天尚無本機打卡紀錄。</p></div></section>
     </section>
-  </main>
 
+    <section class="portal-view" id="portalAttendanceView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>我的出勤</h2><p>顯示單機主系統最近同步的 31 日紀錄；打卡後主系統同步完成才會更新正式資料。</p></div><span class="badge">本人資料</span></div><div id="attendanceList" class="attendance-list"><p class="muted">正在讀取出勤資料…</p></div></section>
+    </section>
 
-  <div class="confirm-overlay photo-review-overlay" id="photoReviewOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoReviewTitle">
-    <div class="confirm-card photo-review-card">
-      <span class="confirm-kicker">照片預覽｜尚未傳送</span>
-      <h2 id="photoReviewTitle">請先檢查這張自拍照片</h2>
-      <p>請確認本人、現場背景、王泰山畜牧場、定位地址與台灣時間都清楚。此畫面只供檢視，尚未傳送 LINE，也尚未建立打卡紀錄。</p>
-      <div class="photo-review-stage">
-        <canvas id="photoReviewCanvas" aria-label="剛拍攝完成的自拍照片預覽"></canvas>
-      </div>
-      <div class="confirm-row photo-review-buttons">
-        <button class="ghost" id="photoReviewRetakeBtn" type="button">照片不滿意｜重新拍照</button>
-        <button class="line-btn" id="photoReviewUseBtn" type="button" data-autofocus>照片沒問題｜使用這張</button>
-      </div>
-    </div>
-  </div>
+    <section class="portal-view" id="portalScheduleView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>工作月曆／我的班表</h2><p>只顯示單機主系統已保存／發布到本人工作月曆的資料，不顯示其他員工班表。</p></div><span class="badge">本人班表</span></div><div class="schedule-toolbar"><button class="ghost" id="schedulePrevBtn" type="button">上一月</button><input id="scheduleMonth" type="month"><button class="ghost" id="scheduleNextBtn" type="button">下一月</button></div><div class="schedule-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div><div id="scheduleCalendar" class="schedule-calendar"></div><div id="scheduleDayDetail" class="schedule-detail"><p class="muted">點選日期查看班別與備註。</p></div></section>
+    </section>
 
-  <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle">
-    <div class="confirm-card">
-      <span class="confirm-kicker">已選用照片</span>
-      <h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2>
-      <div class="confirm-summary" id="photoConfirmSummary"></div>
-      <p>你已先檢視並選用這張照片。按下方按鈕後才會開啟手機分享面板；請選 LINE 與指定工作群組。確認分享成功後，系統才會把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p>
-      <div class="status" id="photoConfirmStatus" aria-live="polite"></div>
-      <button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button>
-      <div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div>
-    </div>
-  </div>
+    <section class="portal-view" id="portalTasksView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>我的工作任務</h2><p>只有完成主系統排班／薪資橋接後正式指派給你的工作才會出現在這裡。員工回報後仍需主管確認。</p></div><span class="badge">完成回報</span></div><div class="task-toolbar"><select id="taskFilter"><option value="open">待處理優先</option><option value="all">全部任務</option><option value="submitted">已回報</option><option value="confirmed">主管已確認</option></select></div><div id="workTaskList" class="work-task-list"><p class="muted">正在讀取工作任務…</p></div><div class="status" id="taskStatus" aria-live="polite"></div></section>
+    </section>
 
-  <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle">
-    <div class="confirm-card">
-      <span class="confirm-kicker">LINE 分享確認</span>
-      <h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2>
-      <p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p>
-      <button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button>
-      <div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div>
-    </div>
-  </div>
+    <section class="portal-view" id="portalPayrollView" hidden>
+      <section class="panel payroll-security"><div class="section-head"><div><h2>正式薪資單安全查詢</h2><p>薪資明細不會跟一般員工資料一起預載。每次查詢都要用目前登入 Session，再次輸入本人 6 位 PIN。</p></div><span class="badge">二次驗證</span></div><div class="form-grid"><label>薪資月份<select id="payrollMonth"></select></label><label>再次輸入 6 位 PIN<input id="payrollPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6 位 PIN"></label></div><button class="primary" id="loadPayslipBtn" type="button">驗證身分並查看薪資單</button><div class="status" id="payrollStatus" aria-live="polite"></div></section>
+      <section class="panel" id="payslipPanel" hidden><div class="section-head"><div><h2 id="payslipTitle">正式薪資單</h2><p id="payslipMeta">—</p></div><button class="ghost" id="printPayslipBtn" type="button">列印／存 PDF</button></div><div id="payslipNet" class="payslip-net">—</div><div id="payslipGrid" class="payslip-grid"></div><p class="payslip-note">只顯示主系統已月結鎖定並同步的本人薪資單。若內容有疑問，請先向主管確認。</p></section>
+    </section>
 
-  <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="打卡雲端橋接"></iframe>
-  <script src="config.js?v=348"></script>
-  <script src="app.js?v=348"></script>
-</body>
-</html>
+    <section class="portal-view" id="portalRequestsView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>請假・補卡・加班</h2><p>送出後先暫存在 Apps Script，單機主系統同步後進入主管審核中心。</p></div><span class="badge">自助申請</span></div><div class="request-kind-tabs"><button class="request-kind active" data-request-kind="leave">請假</button><button class="request-kind" data-request-kind="punch_correction">補卡</button><button class="request-kind" data-request-kind="overtime">加班</button></div>
+        <div class="request-form" id="leaveRequestForm"><label>假別<select id="leaveType"></select></label><div id="leaveBalanceHint" class="form-hint"></div><div class="form-grid"><label>開始日期<input id="leaveStartDate" type="date"></label><label id="leaveEndWrap">結束日期<input id="leaveEndDate" type="date"></label><label>申請單位<select id="leaveUnit"></select></label><label id="leaveQuantityWrap">數量<input id="leaveQuantity" type="number" min="0.5" step="0.5" value="1"></label></div><div id="leaveExtraFields"></div><label>證明文件狀態<select id="leaveDocumentStatus"><option>未提供</option><option>將補件</option><option>已提供紙本</option><option>已由人事留存</option></select></label><label>原因／備註<textarea id="leaveReason" rows="3" placeholder="只填必要內容"></textarea></label><button class="primary" id="submitLeaveBtn" type="button">送出請假申請</button></div>
+        <div class="request-form" id="correctionRequestForm" hidden><div class="form-grid"><label>日期<input id="corrDate" type="date"></label><label>補卡類型<select id="corrType"><option value="上班">補上班卡</option><option value="下班">補下班卡</option><option value="上下班">補上下班卡</option></select></label><label id="corrInWrap">欲補上班時間<input id="corrIn" type="time" value="07:00"></label><label id="corrOutWrap">欲補下班時間<input id="corrOut" type="time" value="18:00"></label></div><label>原因／備註<textarea id="corrReason" rows="3"></textarea></label><button class="primary" id="submitCorrBtn" type="button">送出補卡申請</button></div>
+        <div class="request-form" id="overtimeRequestForm" hidden><div class="form-grid"><label>日期<input id="otDate" type="date"></label><label>開始時間<input id="otStart" type="time" value="18:00"></label><label>結束時間<input id="otEnd" type="time" value="20:00"></label></div><label>加班原因<textarea id="otReason" rows="3"></textarea></label><button class="primary" id="submitOtBtn" type="button">送出加班申請</button></div>
+        <div class="status" id="requestStatus" aria-live="polite"></div>
+      </section>
+      <section class="panel"><div class="section-head"><div><h2>我的申請紀錄</h2><p>「待同步至主系統」表示手機端已送出，但單機主系統尚未同步；之後會變成待審核／已核准／已退回。</p></div></div><div id="requestHistory" class="record-list"><p class="muted">尚無申請紀錄。</p></div></section>
+    </section>
+
+    <section class="portal-view" id="portalProfileView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>我的資料</h2><p>只顯示本人可查看的資料；身分證、銀行帳號等敏感欄位不會同步到 GitHub 員工端。</p></div><span class="badge">唯讀</span></div><div id="profileGrid" class="profile-grid"></div></section>
+      <section class="panel"><div class="section-head"><div><h2>我的假別摘要</h2><p>額度由單機主系統試算，正式核定仍以主管／人事審核為準。</p></div></div><div id="leaveSummaryGrid" class="portal-summary-grid"></div></section>
+      <section class="panel"><div class="section-head"><div><h2>薪資與工作</h2><p>敏感薪資明細採二次 PIN 驗證；工作月曆與任務只顯示本人資料。</p></div></div><div class="portal-actions"><button data-open-view="schedule">📅 我的班表<small>工作月曆</small></button><button data-open-view="tasks">📋 工作任務<small>完成回報</small></button><button data-open-view="payroll">💰 正式薪資單<small>二次 PIN 驗證</small></button></div></section>
+    </section>
+
+    <nav class="portal-bottom-nav" aria-label="員工自助中心導覽"><button class="active" data-portal-nav="home"><span>⌂</span>首頁</button><button data-portal-nav="punch"><span>◎</span>打卡</button><button data-portal-nav="attendance"><span>◷</span>出勤</button><button data-portal-nav="requests"><span>✎</span>申請</button><button data-portal-nav="profile"><span>○</span>我的</button></nav>
+  </section>
+</main>
+
+<div class="confirm-overlay photo-review-overlay" id="photoReviewOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoReviewTitle"><div class="confirm-card photo-review-card"><span class="confirm-kicker">照片預覽｜尚未傳送</span><h2 id="photoReviewTitle">請先檢查這張自拍照片</h2><p>確認本人、背景、牧場名稱、定位地址與台灣時間清楚。此時尚未傳 LINE，也尚未建立打卡紀錄。</p><div class="photo-review-stage"><canvas id="photoReviewCanvas" aria-label="自拍照片預覽"></canvas></div><div class="confirm-row photo-review-buttons"><button class="ghost" id="photoReviewRetakeBtn" type="button">照片不滿意｜重新拍照</button><button class="line-btn" id="photoReviewUseBtn" type="button" data-autofocus>照片沒問題｜使用這張</button></div></div></div>
+<div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle"><div class="confirm-card"><span class="confirm-kicker">已選用照片</span><h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2><div class="confirm-summary" id="photoConfirmSummary"></div><p>按下確認後才會開啟手機分享面板。分享完成後只把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p><div class="status" id="photoConfirmStatus" aria-live="polite"></div><button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button><div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div></div></div>
+<div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle"><div class="confirm-card"><span class="confirm-kicker">LINE 分享確認</span><h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2><p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p><button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button><div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div></div></div>
+<iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="雲端橋接"></iframe>
+<script src="config.js?v=353"></script><script src="app.js?v=353"></script>
+</body></html>

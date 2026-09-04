@@ -1,14 +1,20 @@
-# W412 FIX348｜GitHub 員工打卡端
+# 王泰山畜牧場｜GitHub 員工自助中心 W417 FIX353
 
-## 上傳方式
-將此資料夾內所有檔案直接上傳／覆蓋到 Repository `1150902employee_check_in_sys` 根目錄。
+本版本將原主系統員工自助端第二階段功能整合到同一個 GitHub 員工入口：
 
-正式網址：
-https://zinrow2005-cell.github.io/1150902employee_check_in_sys/
+- 員工編號＋6 位 PIN 登入
+- GPS／定位地址／即時自拍／照片大圖檢視／LINE 分享打卡
+- 最近 31 日本人出勤
+- 請假／補卡／加班與申請狀態
+- 本人工作月曆／班表
+- 本人工作任務與完成回報（主管仍須最後確認）
+- 正式薪資單安全查詢：只列出主系統已月結鎖定月份；每次查詢須有效 Session＋再次輸入本人 6 位 PIN
 
-更新成功後頁面應顯示：`GitHub 員工端 W412`。
+## 安全邊界
 
-## W412 重點
-拍照完成後會立即主動跳出全畫面成品照片預覽。員工先檢查照片，再選「重新拍照」或「使用這張」。只有選「使用這張」才會進入 LINE 分享與打卡回傳。
+- GitHub 不含 SYNC_KEY，也不保存員工 PIN。
+- 身分證字號、銀行帳號、其他員工資料不會同步到員工端。
+- 薪資明細不會預載在一般 EmployeePortal 快照；只有通過二次 PIN 驗證後才逐月取得本人正式薪資單。
+- 自拍照片只透過手機分享至 LINE；Apps Script、Google Sheet、主系統均不保存照片本體。
 
-`config.js` 只含 Apps Script `/exec` 公開網址，不含 SYNC_KEY 或員工 PIN。
+部署時將本資料夾內容直接覆蓋 GitHub Pages repository 根目錄。

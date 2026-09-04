@@ -1,6 +1,6 @@
 {
-  "name":"王泰山畜牧場員工打卡",
-  "short_name":"牧場打卡",
+  "name":"王泰山畜牧場員工自助中心",
+  "short_name":"員工自助",
   "start_url":"./",
   "display":"standalone",
   "background_color":"#eef4ef",
