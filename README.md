@@ -1,20 +1,9 @@
-# 王泰山畜牧場｜GitHub 員工自助中心 W417 FIX353
+# 王泰山畜牧場｜GitHub 員工自助中心 W421 FIX357R2 CLEAN
 
-本版本將原主系統員工自助端第二階段功能整合到同一個 GitHub 員工入口：
+目前唯一正式版本：`W421_FIX357R2_CLEAN`  
+正式 Apps Script `/exec`：`https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec`
 
-- 員工編號＋6 位 PIN 登入
-- GPS／定位地址／即時自拍／照片大圖檢視／LINE 分享打卡
-- 最近 31 日本人出勤
-- 請假／補卡／加班與申請狀態
-- 本人工作月曆／班表
-- 本人工作任務與完成回報（主管仍須最後確認）
-- 正式薪資單安全查詢：只列出主系統已月結鎖定月份；每次查詢須有效 Session＋再次輸入本人 6 位 PIN
-
-## 安全邊界
-
-- GitHub 不含 SYNC_KEY，也不保存員工 PIN。
-- 身分證字號、銀行帳號、其他員工資料不會同步到員工端。
-- 薪資明細不會預載在一般 EmployeePortal 快照；只有通過二次 PIN 驗證後才逐月取得本人正式薪資單。
-- 自拍照片只透過手機分享至 LINE；Apps Script、Google Sheet、主系統均不保存照片本體。
-
-部署時將本資料夾內容直接覆蓋 GitHub Pages repository 根目錄。
+- `config.js` 是重新載入時的唯一正式橋接來源。
+- 瀏覽器既有的版本化 bridge localStorage 不得覆蓋 `config.js`。
+- Service Worker 啟用時會刪除其他舊 Cache Storage。
+- `SYNC_KEY` 與員工 PIN 不得寫入 GitHub。

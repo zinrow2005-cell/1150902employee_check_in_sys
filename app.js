@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W417 FIX353：員工自助中心完整回歸修正版｜補卡・任務回報・申請驗證・備份一致性
+  // Current formal employee portal bridge configuration.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -9,7 +9,7 @@
   const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',payslip:null};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
-  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_v353';
+  const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
   function normalizeBridgeUrl(raw){
     const v=String(raw||'').trim();
     if(!v)return '';
@@ -20,9 +20,19 @@
   function bridgeFromQuery(){
     try{const u=new URL(location.href),q=u.searchParams.get('bridge')||u.searchParams.get('bridgeUrl')||'';if(!q)return '';const n=normalizeBridgeUrl(q);localStorage.setItem(BRIDGE_STORAGE_KEY,n);u.searchParams.delete('bridge');u.searchParams.delete('bridgeUrl');history.replaceState(null,'',u.pathname+(u.search||'')+u.hash);return n;}catch(_e){return '';}
   }
-  let bridgeUrl=bridgeFromQuery();
+  function purgeRetiredBridgeStorage(){
+    try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i)||'';if(key.startsWith('wts_att_bridge_url_')&&key!==BRIDGE_STORAGE_KEY)localStorage.removeItem(key);}}catch(_e){}
+  }
+  purgeRetiredBridgeStorage();
+  let bridgeUrl='';
+  // The checked-in config.js is authoritative on every reload. Device-local values cannot override it.
+  try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}
+  if(!bridgeUrl){
+    const queryBridge=bridgeFromQuery();
+    if(queryBridge)bridgeUrl=queryBridge;
+  }
   if(!bridgeUrl){try{bridgeUrl=normalizeBridgeUrl(localStorage.getItem(BRIDGE_STORAGE_KEY)||'');}catch(_e){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';}}
-  if(!bridgeUrl){try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}}
+  if(CFG.bridgeUrl){try{localStorage.removeItem(BRIDGE_STORAGE_KEY);}catch(_e){}}
   function bridgeConfigIssue(){
     if(!bridgeUrl)return '尚未設定 Apps Script Web App 網址。請點「橋接設定」，直接貼上正式 /exec 網址。';
     return '';
@@ -361,7 +371,7 @@
   async function testBridge(){
     if(!bridgeReady()){status($('setupStatus'),bridgeConfigIssue(),'error');return;}
     const btn=$('testBridgeBtn');if(btn)btn.disabled=true;status($('setupStatus'),'正在測試 Apps Script 回傳…');
-    try{const d=await postBridge('health',{},10000);status($('setupStatus'),`雲端橋接正常｜${d.now||'已收到 Apps Script 回傳'}`,'ok');}
+    try{const d=await postBridge('health',{},10000);status($('setupStatus'),`雲端橋接正常｜${d.version||'版本未知'}｜${d.now||'已收到 Apps Script 回傳'}`,'ok');}
     catch(e){status($('setupStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}
   }
@@ -372,5 +382,5 @@
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
   $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
-  window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});restoreEmployee();
+  window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});restoreEmployee();
 })();

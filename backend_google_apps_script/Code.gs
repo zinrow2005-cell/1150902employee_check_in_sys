@@ -1,5 +1,5 @@
 /**
- * W417 FIX353｜王泰山畜牧場員工自助中心第二階段＋定位自拍打卡橋接
+ * W421 FIX357R2 CLEAN｜王泰山畜牧場員工自助中心｜新正式部署＋橋接診斷修正版
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W417_FIX353';
+const BRIDGE_VERSION = 'W421_FIX357R2_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -89,7 +89,7 @@ function REGENERATE_SYNC_KEY() {
   return key;
 }
 
-/** 保留舊名稱，避免 W401 使用者升級後失效。 */
+/** Compatibility alias retained for existing callers. */
 function setupAttendanceBridge() {
   const props = PropertiesService.getScriptProperties();
   let sheetId = String(props.getProperty('SHEET_ID') || '').trim();
@@ -137,6 +137,15 @@ function setupAttendanceBridge() {
   return result;
 }
 
+function SHOW_EMPLOYEE_ACCOUNTS() {
+  const rows = employees_().map(function(x){
+    return {id:String(x.id||''), name:String(x.name||''), department:String(x.department||''), active:x.active!==false};
+  });
+  console.log('EMPLOYEE_COUNT = ' + rows.length);
+  console.log(JSON.stringify(rows, null, 2));
+  return rows;
+}
+
 function makeSyncKey_() {
   return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
 }
@@ -171,7 +180,7 @@ function doPost(e) {
   const requestId = String(p.requestId || '');
   try {
     if (action === 'health') {
-      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', timezone:TAIPEI_TZ, now:isoNow_()});
+      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
     }
     if (action === 'export') {
       const props = PropertiesService.getScriptProperties();
@@ -226,7 +235,7 @@ function sessionEmployee_(token) {
   if (!cached) return null;
   let session;
   try { session = JSON.parse(cached); } catch (_e) { return null; }
-  // W415：每次使用 Session 都重新確認員工仍存在且為啟用，避免主管停用帳號後舊 Session 繼續使用。
+  // Every session use rechecks that the employee still exists and is active.
   const current = employees_().find(function(x){return String(x.id||'')===String(session.id||'') && x.active!==false;});
   if (!current) { cache.remove('session:' + key); return null; }
   return {id:current.id,name:current.name||current.id,department:current.department||''};
