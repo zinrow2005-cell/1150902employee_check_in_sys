@@ -1,5 +1,5 @@
 /**
- * W427 FIX363 CLEAN｜王泰山畜牧場員工自助中心｜部門＋批次月曆導向排班整合
+ * W430 FIX366 CLEAN｜王泰山畜牧場員工自助中心｜班表＋各部門重大工作項目表
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W427_FIX363_CLEAN';
+const BRIDGE_VERSION = 'W430_FIX366_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -27,6 +27,8 @@ const PORTAL_REQUEST_HEADERS = ['requestId','employeeId','employeeName','request
 const PORTAL_REQUEST_COOLDOWN_SECONDS = 20;
 const PORTAL_PAYSLIP_SHEET = 'EmployeePayslips';
 const PORTAL_PAYSLIP_HEADERS = ['employeeId','month','payloadJson','updatedAt'];
+const PORTAL_WORK_PLAN_SHEET = 'EmployeeWorkPlan';
+const PORTAL_WORK_PLAN_HEADERS = ['month','payloadJson','updatedAt'];
 
 /**
  * 【第一次請執行這個】
@@ -212,6 +214,10 @@ function doPost(e) {
       if (!managerSyncKeyOk_(p.syncKey)) return json_({ok:false, message:'syncKey 不正確'});
       return json_(syncPortalPayslips_(String(p.payslipsJson || '[]')));
     }
+    if (action === 'syncPortalWorkPlan') {
+      if (!managerSyncKeyOk_(p.syncKey)) return json_({ok:false, message:'syncKey 不正確'});
+      return json_(syncPortalWorkPlan_(String(p.workPlanJson || '{}')));
+    }
     if (action === 'login') return bridgeHtml_(Object.assign({requestId:requestId}, login_(p)));
     if (action === 'portalData') return bridgeHtml_(Object.assign({requestId:requestId}, portalData_(p)));
     if (action === 'portalPayslip') return bridgeHtml_(Object.assign({requestId:requestId}, portalPayslip_(p)));
@@ -269,23 +275,79 @@ function syncPortalData_(rawJson) {
   if (sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,PORTAL_HEADERS.length).clearContent();
   const values=[];
   const now=isoNow_();
+  let scheduleRowsTotal=0;
+  const scheduleMonthCounts={};
+  const scheduleRowsByEmployee={};
   rows.forEach(function(x){
     if(!x||typeof x!=='object')return;
     const id=String(x.employeeId||'').trim();if(!id)return;
-    let payload=JSON.stringify(x);
+    let stored=x;
+    let payload=JSON.stringify(stored);
     if(payload.length>48000){
       const slim=Object.assign({},x);
       if(Array.isArray(slim.attendanceRecent))slim.attendanceRecent=slim.attendanceRecent.slice(0,14);
       if(slim.leave&&slim.leave.ledger&&Array.isArray(slim.leave.ledger.history))slim.leave.ledger.history=slim.leave.ledger.history.slice(0,20);
       if(Array.isArray(slim.requests))slim.requests=slim.requests.slice(0,40);
-      if(slim.schedule&&Array.isArray(slim.schedule.rows))slim.schedule.rows=slim.schedule.rows.slice(-62);
+      if(slim.schedule&&Array.isArray(slim.schedule.rows)){
+        const forced=(Array.isArray(slim.schedule.forcedMonths)?slim.schedule.forcedMonths:[]).map(String);
+        const must=slim.schedule.rows.filter(function(r){return forced.indexOf(String((r&&r.date)||'').slice(0,7))>=0;});
+        const other=slim.schedule.rows.filter(function(r){return forced.indexOf(String((r&&r.date)||'').slice(0,7))<0;}).slice(-62);
+        const by={};must.concat(other).forEach(function(r){const k=String((r&&r.employeeId)||id)+'__'+String((r&&r.date)||'').slice(0,10);by[k]=r;});
+        slim.schedule=Object.assign({},slim.schedule,{rows:Object.keys(by).map(function(k){return by[k];}).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));})});
+      }
       if(Array.isArray(slim.workTasks))slim.workTasks=slim.workTasks.slice(0,30);
-      payload=JSON.stringify(slim);
+      stored=slim;payload=JSON.stringify(stored);
     }
+    const scheduleRows=(stored&&stored.schedule&&Array.isArray(stored.schedule.rows))?stored.schedule.rows:[];
+    scheduleRows.forEach(function(r){const m=String((r&&r.date)||'').slice(0,7);if(m)scheduleMonthCounts[m]=(scheduleMonthCounts[m]||0)+1;});
+    scheduleRowsByEmployee[id]=scheduleRows.length;
+    scheduleRowsTotal+=scheduleRows.length;
     values.push([id,payload,String(x.updatedAt||now)]);
   });
   if(values.length)sheet.getRange(2,1,values.length,PORTAL_HEADERS.length).setValues(values);
-  return {ok:true,count:values.length,updatedAt:now};
+  return {ok:true,count:values.length,updatedAt:now,scheduleRows:scheduleRowsTotal,scheduleMonthCounts:scheduleMonthCounts,scheduleRowsByEmployee:scheduleRowsByEmployee};
+}
+
+function syncPortalWorkPlan_(rawJson) {
+  let plan={};
+  try { plan=JSON.parse(rawJson || '{}'); } catch (_e) { return {ok:false,message:'workPlanJson 不是有效 JSON'}; }
+  if (!plan || typeof plan!=='object') return {ok:false,message:'workPlanJson 必須是物件'};
+  const rows=Array.isArray(plan.rows)?plan.rows:[];
+  const months={};
+  (Array.isArray(plan.months)?plan.months:[]).forEach(function(x){const m=String((x&&x.month)||'').slice(0,7);if(m)months[m]=true;});
+  rows.forEach(function(r){const m=String((r&&(r.date||r.d))||'').slice(0,7);if(m)months[m]=true;});
+  const monthList=Object.keys(months).sort();
+  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS);
+  if (sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,PORTAL_WORK_PLAN_HEADERS.length).clearContent();
+  const now=isoNow_(),values=[],monthCounts={},tooLarge=[];
+  monthList.forEach(function(month){
+    const monthRows=rows.filter(function(r){return String((r&&(r.date||r.d))||'').slice(0,7)===month;});
+    const payload={version:String(plan.version||'W430_WORK_PLAN_V1'),generatedAt:String(plan.generatedAt||now),timezone:String(plan.timezone||TAIPEI_TZ),month:month,departments:Array.isArray(plan.departments)?plan.departments:[],rows:monthRows,sourceMode:String(plan.sourceMode||''),planningReady:plan.planningReady!==false,note:String(plan.note||'')};
+    const text=JSON.stringify(payload);
+    if(text.length>48000){tooLarge.push(month);return;}
+    values.push([month,text,now]);monthCounts[month]=monthRows.length;
+  });
+  if(values.length)sheet.getRange(2,1,values.length,PORTAL_WORK_PLAN_HEADERS.length).setValues(values);
+  const itemCount=values.reduce(function(n,x){try{return n+(JSON.parse(String(x[1]||'{}')).rows||[]).length;}catch(_e){return n;}},0);
+  if(tooLarge.length)return {ok:false,message:'工作項目表月份資料過大，未完整保存：'+tooLarge.join('、'),months:values.map(function(x){return x[0];}),monthCounts:monthCounts,itemCount:itemCount,tooLargeMonths:tooLarge,updatedAt:now};
+  return {ok:true,months:values.map(function(x){return x[0];}),monthCounts:monthCounts,itemCount:itemCount,updatedAt:now};
+}
+
+function portalWorkPlan_() {
+  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS);
+  const last=sheet.getLastRow();
+  if(last<2)return {version:'W430_WORK_PLAN_V1',generatedAt:'',timezone:TAIPEI_TZ,months:[],departments:[],rows:[],sourceMode:'尚未同步',planningReady:false,note:'主系統尚未同步批次月曆重大工作事項。'};
+  const values=sheet.getRange(2,1,last-1,3).getValues(),rows=[],monthMeta=[],depMap={};let generatedAt='',sourceMode='',note='',planningReady=false;
+  values.forEach(function(row){
+    let p={};try{p=JSON.parse(String(row[1]||'{}'));}catch(_e){p={};}
+    const month=String(row[0]||p.month||'').slice(0,7),items=Array.isArray(p.rows)?p.rows:[];
+    if(month)monthMeta.push({month:month,itemCount:items.length,criticalCount:items.filter(function(x){return String((x&&(x.importance||x.i))||'')==='critical';}).length});
+    items.forEach(function(x){rows.push(x);});
+    (Array.isArray(p.departments)?p.departments:[]).forEach(function(d){const id=String((d&&d.id)||'');if(id)depMap[id]=d;});
+    if(p.generatedAt)generatedAt=String(p.generatedAt);if(p.sourceMode)sourceMode=String(p.sourceMode);if(p.note)note=String(p.note);if(p.planningReady!==false&&items.length)planningReady=true;
+  });
+  rows.sort(function(a,b){return String((a&&(a.date||a.d))||'').localeCompare(String((b&&(b.date||b.d))||''));});
+  return {version:'W430_WORK_PLAN_V1',generatedAt:generatedAt,timezone:TAIPEI_TZ,months:monthMeta.sort(function(a,b){return a.month.localeCompare(b.month);}),departments:Object.keys(depMap).map(function(k){return depMap[k];}),rows:rows,sourceMode:sourceMode,planningReady:planningReady,note:note};
 }
 
 function portalSnapshot_(employeeId) {
@@ -386,6 +448,8 @@ function portalData_(p) {
   const employee=sessionEmployee_(p.sessionToken);
   if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
   const snapshot=portalSnapshot_(employee.id)||{employeeId:employee.id,profile:{employeeId:employee.id,name:employee.name||employee.id,department:employee.department||''},attendanceRecent:[],leave:{rules:[],balances:{},annualLeave:{}},requests:[],summary:{}};
+  snapshot.departmentWorkPlan=portalWorkPlan_();
+  snapshot.summary=snapshot.summary||{};snapshot.summary.majorWorkItems=(snapshot.departmentWorkPlan.rows||[]).length;
   const merged={},base=Array.isArray(snapshot.requests)?snapshot.requests:[],cloud=portalRequestsForEmployee_(employee.id);
   base.concat(cloud).forEach(function(x){if(!x||typeof x!=='object')return;const id=String(x.requestId||'');if(!id)return;merged[id]=Object.assign({},merged[id]||{},x);});
   snapshot.requests=Object.keys(merged).map(function(k){return merged[k];}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80);
@@ -398,7 +462,7 @@ function timeMinutes_(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));if(!m)r
 function validatePortalPayload_(payload){
   const kind=String(payload&&payload.requestKind||'').trim();
   const date=String(payload&& (payload.date||payload.startDate) ||'').trim();
-  if(['preleave','leave','punch_correction','overtime','work_completion'].indexOf(kind)<0)return '目前員工自助中心只接受預排休假、請假、補卡、加班與工作完成回報';
+  if(['preleave','leave','roster_change','punch_correction','overtime','work_completion'].indexOf(kind)<0)return '目前員工自助中心只接受休假調整、預排休假、請假、補卡、加班與工作完成回報';
   if(!validDate_(date))return '請填寫有效日期';
   if(kind==='preleave'){
     if(['預排例假日','預排休息日'].indexOf(String(payload.preScheduleType||payload.requestType||''))<0)return '預排類型必須為預排例假日或預排休息日';
@@ -414,6 +478,13 @@ function validatePortalPayload_(payload){
     }else if(unit!=='fixed_calendar_days'){
       const q=Number(payload.quantity);if(!isFinite(q)||q<=0||q>365)return '請假數量必須大於 0 且不可超過 365';
     }
+  }
+  if(kind==='roster_change'){
+    const fromDate=String(payload.fromDate||payload.date||''),toDate=String(payload.toDate||'');
+    if(!validDate_(fromDate)||!validDate_(toDate))return '請選擇有效的原休假日與希望調整日期';
+    if(fromDate===toDate)return '原休假日與希望調整日期不可相同';
+    if(fromDate.slice(0,7)!==toDate.slice(0,7))return '休假日期調整目前僅支援同一月份內交換';
+    if(!String(payload.reason||'').trim())return '請填寫調整休假日期的原因';
   }
   if(kind==='punch_correction'){
     const t=String(payload.missingPunchType||'');if(['上班','下班','上下班'].indexOf(t)<0)return '補卡類型不正確';
