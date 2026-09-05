@@ -1,5 +1,5 @@
 /**
- * W433 FIX369 CLEAN｜王泰山畜牧場員工自助中心｜15 天登入 Session＋WebAuthn＋班表／工作項目
+ * W432 FIX368 CLEAN｜王泰山畜牧場員工自助中心｜15 天登入＋最廣相機
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,16 +8,16 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W433_FIX369_CLEAN';
+const BRIDGE_VERSION = 'W432_FIX368_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
 const TAIPEI_TZ = 'Asia/Taipei';
-// FIX369｜登入後固定保留 15 天；不能只用 CacheService，因其不適合長天期登入。
 const SESSION_DAYS = 15;
 const SESSION_SECONDS = SESSION_DAYS * 24 * 60 * 60;
-const SESSION_SHEET = 'EmployeeSessions';
-const SESSION_HEADERS = ['tokenHash','employeeId','pinHash','issuedAt','expiresAt','lastUsedAt','revokedAt','loginMethod','deviceName'];
+// Apps Script CacheService is only a short-lived accelerator; the formal 15-day session lives in ScriptProperties.
+const SESSION_CACHE_SECONDS = 60 * 60 * 6;
+const SESSION_PROPERTY_PREFIX = 'EMP_SESSION_';
 const HEADERS = [
   'recordId','employeeId','employeeName','type','date','time','dateTime',
   'latitude','longitude','accuracyM','locationLabel','photoConfirmed',
@@ -33,16 +33,6 @@ const PORTAL_PAYSLIP_SHEET = 'EmployeePayslips';
 const PORTAL_PAYSLIP_HEADERS = ['employeeId','month','payloadJson','updatedAt'];
 const PORTAL_WORK_PLAN_SHEET = 'EmployeeWorkPlan';
 const PORTAL_WORK_PLAN_HEADERS = ['month','payloadJson','updatedAt'];
-
-// FIX369｜快速登入：真正 WebAuthn 驗簽 + 選用手勢登入。
-const BIOMETRIC_DEVICE_SHEET = 'EmployeeBiometricDevices';
-const BIOMETRIC_DEVICE_HEADERS = ['credentialId','employeeId','deviceName','publicKeySpki','signCount','active','createdAt','lastUsedAt','revokedAt','origin','rpId','transports'];
-const GESTURE_DEVICE_SHEET = 'EmployeeGestureDevices';
-const GESTURE_DEVICE_HEADERS = ['deviceId','employeeId','deviceName','salt','gestureHash','active','createdAt','lastUsedAt','revokedAt'];
-const WEBAUTHN_RP_ID = 'zinrow2005-cell.github.io';
-const WEBAUTHN_ALLOWED_ORIGINS = ['https://zinrow2005-cell.github.io'];
-const WEBAUTHN_CHALLENGE_SECONDS = 300;
-const LOGIN_DEVICE_LIMIT_PER_EMPLOYEE = 5;
 
 /**
  * 【第一次請執行這個】
@@ -80,8 +70,7 @@ function CHECK_BRIDGE_SETUP() {
     sheetIdConfigured: !!props.getProperty('SHEET_ID'),
     syncKeyConfigured: !!props.getProperty('SYNC_KEY'),
     employeeCount: employees_().length,
-    timezone: TAIPEI_TZ,
-    sessionDays: SESSION_DAYS
+    timezone: TAIPEI_TZ
   };
   console.log(JSON.stringify(info, null, 2));
   if (info.syncKeyConfigured) {
@@ -130,9 +119,6 @@ function setupAttendanceBridge() {
   ensureNamedSheet_(ss, PORTAL_SHEET, PORTAL_HEADERS);
   ensureNamedSheet_(ss, PORTAL_REQUEST_SHEET, PORTAL_REQUEST_HEADERS);
   ensureNamedSheet_(ss, PORTAL_PAYSLIP_SHEET, PORTAL_PAYSLIP_HEADERS);
-  ensureNamedSheet_(ss, BIOMETRIC_DEVICE_SHEET, BIOMETRIC_DEVICE_HEADERS);
-  ensureNamedSheet_(ss, GESTURE_DEVICE_SHEET, GESTURE_DEVICE_HEADERS);
-  ensureNamedSheet_(ss, SESSION_SHEET, SESSION_HEADERS);
 
   if (!props.getProperty('SYNC_KEY')) {
     props.setProperty('SYNC_KEY', makeSyncKey_());
@@ -179,7 +165,6 @@ function doGet(e) {
       version:BRIDGE_VERSION,
       timezone:TAIPEI_TZ,
       initialized:isInitialized_(),
-      sessionDays:SESSION_DAYS,
       now:isoNow_()
     });
   }
@@ -201,7 +186,7 @@ function doPost(e) {
   const requestId = String(p.requestId || '');
   try {
     if (action === 'health') {
-      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, sessionDays:SESSION_DAYS, now:isoNow_()});
+      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
     }
     if (action === 'export') {
       const props = PropertiesService.getScriptProperties();
@@ -237,25 +222,8 @@ function doPost(e) {
       if (!managerSyncKeyOk_(p.syncKey)) return json_({ok:false, message:'syncKey 不正確'});
       return json_(syncPortalWorkPlan_(String(p.workPlanJson || '{}')));
     }
-    if (action === 'managerListLoginDevices') {
-      if (!managerSyncKeyOk_(p.syncKey)) return json_({ok:false, message:'syncKey 不正確'});
-      return json_(managerListLoginDevices_());
-    }
-    if (action === 'managerRevokeLoginDevice') {
-      if (!managerSyncKeyOk_(p.syncKey)) return json_({ok:false, message:'syncKey 不正確'});
-      return json_(managerRevokeLoginDevice_(p));
-    }
-    if (action === 'biometricRegisterBegin') return bridgeHtml_(Object.assign({requestId:requestId}, biometricRegisterBegin_(p)));
-    if (action === 'biometricRegisterFinish') return bridgeHtml_(Object.assign({requestId:requestId}, biometricRegisterFinish_(p)));
-    if (action === 'biometricLoginBegin') return bridgeHtml_(Object.assign({requestId:requestId}, biometricLoginBegin_(p)));
-    if (action === 'biometricLoginFinish') return bridgeHtml_(Object.assign({requestId:requestId}, biometricLoginFinish_(p)));
-    if (action === 'gestureRegister') return bridgeHtml_(Object.assign({requestId:requestId}, gestureRegister_(p)));
-    if (action === 'gestureLogin') return bridgeHtml_(Object.assign({requestId:requestId}, gestureLogin_(p)));
-    if (action === 'loginDevices') return bridgeHtml_(Object.assign({requestId:requestId}, loginDevices_(p)));
-    if (action === 'loginDeviceRevoke') return bridgeHtml_(Object.assign({requestId:requestId}, loginDeviceRevoke_(p)));
-    if (action === 'sessionCheck') return bridgeHtml_(Object.assign({requestId:requestId}, sessionCheck_(p)));
-    if (action === 'logout') return bridgeHtml_(Object.assign({requestId:requestId}, logout_(p)));
     if (action === 'login') return bridgeHtml_(Object.assign({requestId:requestId}, login_(p)));
+    if (action === 'logout') return bridgeHtml_(Object.assign({requestId:requestId}, logout_(p)));
     if (action === 'portalData') return bridgeHtml_(Object.assign({requestId:requestId}, portalData_(p)));
     if (action === 'portalPayslip') return bridgeHtml_(Object.assign({requestId:requestId}, portalPayslip_(p)));
     if (action === 'portalRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalRequest_(p)));
@@ -279,71 +247,62 @@ function employeeIdEqual_(a, b) {
   return !!ak && ak === bk;
 }
 
-function employeePinHash_(employee) {
-  return sha256Hex_('employee-pin|'+employeeIdKey_(employee && employee.id)+'|'+String(employee && employee.pin || ''));
+function sessionPropertyKey_(token) {
+  return SESSION_PROPERTY_PREFIX + String(token || '').trim();
 }
 
-function sessionTokenHash_(token) {
-  const key=String(token||'').trim();
-  return key ? sha256Hex_('employee-session|'+key) : '';
-}
-
-function sessionStore_() {
-  return sheetRowsObjects_(SESSION_SHEET, SESSION_HEADERS);
-}
-
-function sessionRowByToken_(token) {
-  const hash=sessionTokenHash_(token);
-  if(!hash)return null;
-  const store=sessionStore_();
-  return store.rows.find(function(x){return String(x.tokenHash||'')===hash;})||null;
-}
-
-function revokeSessionToken_(token, reason) {
-  const row=sessionRowByToken_(token);
-  if(!row || String(row.revokedAt||''))return false;
-  const store=ensureNamedSheet_(spreadsheet_(),SESSION_SHEET,SESSION_HEADERS);
-  const col=SESSION_HEADERS.indexOf('revokedAt')+1;
-  store.getRange(row._row,col).setValue(isoNow_()+(reason?' | '+String(reason).slice(0,100):''));
-  return true;
-}
-
-function revokeEmployeeSessions_(employeeId, reason) {
-  const store=sessionStore_(), col=SESSION_HEADERS.indexOf('revokedAt')+1, now=isoNow_();
-  let count=0;
-  store.rows.forEach(function(row){
-    if(employeeIdEqual_(row.employeeId,employeeId) && !String(row.revokedAt||'')){
-      store.sheet.getRange(row._row,col).setValue(now+(reason?' | '+String(reason).slice(0,100):''));
-      count++;
-    }
-  });
-  return count;
+function removeSession_(token) {
+  const key = String(token || '').trim();
+  if (!key) return;
+  try { CacheService.getScriptCache().remove('session:' + key); } catch (_e) {}
+  try { PropertiesService.getScriptProperties().deleteProperty(sessionPropertyKey_(key)); } catch (_e) {}
 }
 
 function cleanupExpiredSessions_() {
-  const store=sessionStore_(), nowMs=Date.now(), revCol=SESSION_HEADERS.indexOf('revokedAt')+1;
-  let count=0;
-  store.rows.forEach(function(row){
-    if(String(row.revokedAt||''))return;
-    const exp=Date.parse(String(row.expiresAt||''));
-    if(!Number.isFinite(exp) || exp<=nowMs){
-      store.sheet.getRange(row._row,revCol).setValue(isoNow_()+' | expired');
-      count++;
-    }
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  const now = Date.now();
+  Object.keys(all).forEach(function(k){
+    if (k.indexOf(SESSION_PROPERTY_PREFIX) !== 0) return;
+    try {
+      const row = JSON.parse(all[k] || '{}');
+      if (!Number(row.expiresAtMs) || Number(row.expiresAtMs) <= now) props.deleteProperty(k);
+    } catch (_e) { props.deleteProperty(k); }
   });
-  return count;
+}
+
+function saveSession_(token, employee) {
+  const now = Date.now();
+  const session = {
+    id:String(employee.id || ''),
+    name:String(employee.name || employee.id || ''),
+    department:String(employee.department || ''),
+    issuedAtMs:now,
+    expiresAtMs:now + SESSION_SECONDS * 1000
+  };
+  const json = JSON.stringify(session);
+  PropertiesService.getScriptProperties().setProperty(sessionPropertyKey_(token), json);
+  CacheService.getScriptCache().put('session:' + token, json, SESSION_CACHE_SECONDS);
+  return session;
 }
 
 function sessionEmployee_(token) {
-  const row=sessionRowByToken_(token);
-  if(!row || String(row.revokedAt||''))return null;
-  const exp=Date.parse(String(row.expiresAt||''));
-  if(!Number.isFinite(exp) || exp<=Date.now()){revokeSessionToken_(token,'expired');return null;}
-  // Every session use rechecks that the employee still exists, is active, and still has the same PIN generation.
-  const current=employees_().find(function(x){return employeeIdEqual_(x.id,row.employeeId)&&x.active!==false;});
-  if(!current){revokeSessionToken_(token,'employee inactive or missing');return null;}
-  if(String(row.pinHash||'')!==employeePinHash_(current)){revokeSessionToken_(token,'PIN changed');return null;}
-  return {id:current.id,name:current.name||current.id,department:current.department||'',sessionExpiresAt:String(row.expiresAt||'')};
+  const key = String(token || '').trim();
+  if (!key) return null;
+  const cache = CacheService.getScriptCache();
+  let raw = cache.get('session:' + key);
+  if (!raw) raw = PropertiesService.getScriptProperties().getProperty(sessionPropertyKey_(key));
+  if (!raw) return null;
+  let session;
+  try { session = JSON.parse(raw); } catch (_e) { removeSession_(key); return null; }
+  const remainingMs = Number(session.expiresAtMs || 0) - Date.now();
+  if (remainingMs <= 0) { removeSession_(key); return null; }
+  // Every session use rechecks that the employee still exists and is active.
+  const current = employees_().find(function(x){return employeeIdEqual_(x.id, session.id) && x.active!==false;});
+  if (!current) { removeSession_(key); return null; }
+  // Refill only the short cache; the formal expiry remains fixed at 15 days from login.
+  try { cache.put('session:' + key, JSON.stringify(session), Math.max(1, Math.min(SESSION_CACHE_SECONDS, Math.floor(remainingMs / 1000)))); } catch (_e) {}
+  return {id:current.id,name:current.name||current.id,department:current.department||'',sessionExpiresAtMs:Number(session.expiresAtMs||0)};
 }
 
 function login_(p) {
@@ -352,178 +311,16 @@ function login_(p) {
   if (!employeeId || !pin) return {ok:false, message:'請輸入員工編號與 PIN'};
   const employee = employees_().find(function(x){return employeeIdEqual_(x.id, employeeId) && x.active!==false;});
   if (!employee || String(employee.pin || '') !== pin) return {ok:false, message:'員工編號或 PIN 不正確'};
-  return Object.assign(newSessionForEmployee_(employee,'pin',String(p.deviceName||'')), {loginMethod:'pin'});
-}
-
-
-// ---------- FIX369 Login devices / WebAuthn ----------
-function newSessionForEmployee_(employee, loginMethod, deviceName) {
   cleanupExpiredSessions_();
-  const token=Utilities.getUuid()+Utilities.getUuid();
-  const issued=new Date(), expires=new Date(issued.getTime()+SESSION_SECONDS*1000);
-  const row=[
-    sessionTokenHash_(token),
-    String(employee.id||''),
-    employeePinHash_(employee),
-    issued.toISOString(),
-    expires.toISOString(),
-    issued.toISOString(),
-    '',
-    String(loginMethod||'pin').slice(0,30),
-    String(deviceName||'').slice(0,80)
-  ];
-  ensureNamedSheet_(spreadsheet_(),SESSION_SHEET,SESSION_HEADERS).appendRow(row);
-  return {
-    ok:true,
-    sessionToken:token,
-    sessionExpiresAt:expires.toISOString(),
-    sessionDays:SESSION_DAYS,
-    employee:{id:employee.id,name:employee.name||employee.id,department:employee.department||''}
-  };
-}
-
-function sessionCheck_(p) {
-  const employee=sessionEmployee_(p.sessionToken);
-  if(!employee)return {ok:false,message:'登入已逾時或已失效，請重新登入'};
-  const row=sessionRowByToken_(p.sessionToken);
-  return {
-    ok:true,
-    employee:{id:employee.id,name:employee.name||employee.id,department:employee.department||''},
-    sessionExpiresAt:String(row&&row.expiresAt||employee.sessionExpiresAt||''),
-    sessionDays:SESSION_DAYS
-  };
+  const token = Utilities.getUuid() + Utilities.getUuid();
+  const session = saveSession_(token, employee);
+  return {ok:true, sessionToken:token, sessionExpiresAtMs:session.expiresAtMs, sessionDays:SESSION_DAYS, employee:{id:employee.id,name:employee.name||employee.id,department:employee.department||''}};
 }
 
 function logout_(p) {
-  const token=String(p.sessionToken||'').trim();
-  if(token)revokeSessionToken_(token,'employee logout');
-  return {ok:true,message:'已登出'};
+  removeSession_(String(p.sessionToken || ''));
+  return {ok:true, message:'已登出並撤銷這台裝置的登入 Session'};
 }
-
-function base64UrlEncodeBytes_(bytes) {
-  return Utilities.base64EncodeWebSafe((bytes||[]).map(function(x){x=Number(x)&255;return x>127?x-256:x;})).replace(/=+$/,'');
-}
-function base64UrlDecodeBytes_(text) {
-  let s=String(text||'').replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='=';
-  return Utilities.base64Decode(s).map(function(x){return Number(x)&255;});
-}
-function sha256Bytes_(value) {
-  const bytes=Array.isArray(value)?value.map(function(x){x=Number(x)&255;return x>127?x-256:x;}):Utilities.newBlob(String(value||'')).getBytes();
-  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,bytes).map(function(x){return Number(x)&255;});
-}
-function sha256Hex_(text) { return sha256Bytes_(String(text||'')).map(function(x){return ('0'+x.toString(16)).slice(-2);}).join(''); }
-function randomChallenge_() { return base64UrlEncodeBytes_(sha256Bytes_(Utilities.getUuid()+'|'+Utilities.getUuid()+'|'+new Date().getTime()+'|'+Math.random())); }
-function challengePut_(kind, data) { const id=Utilities.getUuid().replace(/-/g,''); CacheService.getScriptCache().put('wa:'+kind+':'+id,JSON.stringify(data),WEBAUTHN_CHALLENGE_SECONDS); return id; }
-function challengeTake_(kind,id) { const cache=CacheService.getScriptCache(),key='wa:'+kind+':'+String(id||''); const raw=cache.get(key); if(!raw)return null; cache.remove(key); try{return JSON.parse(raw);}catch(_e){return null;} }
-function allowedWebAuthnOrigin_(origin) { return WEBAUTHN_ALLOWED_ORIGINS.indexOf(String(origin||''))>=0; }
-function byteArraysEqual_(a,b){if(!a||!b||a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=((a[i]&255)^(b[i]&255));return d===0;}
-function parseClientData_(b64){const bytes=base64UrlDecodeBytes_(b64);let text='';try{text=Utilities.newBlob(bytes.map(function(x){return x>127?x-256:x;})).getDataAsString('UTF-8');}catch(_e){throw new Error('clientDataJSON 無法解析');}let obj;try{obj=JSON.parse(text);}catch(_e){throw new Error('clientDataJSON 不是有效 JSON');}return {bytes:bytes,obj:obj};}
-function authDataCheck_(b64,rpId){const bytes=base64UrlDecodeBytes_(b64);if(bytes.length<37)throw new Error('authenticatorData 長度不足');const expected=sha256Bytes_(rpId),actual=bytes.slice(0,32);if(!byteArraysEqual_(expected,actual))throw new Error('快速登入網站識別不一致');const flags=bytes[32]&255;if((flags&0x01)===0)throw new Error('未確認使用者存在');if((flags&0x04)===0)throw new Error('未完成裝置生物辨識／螢幕鎖驗證');const signCount=((bytes[33]&255)*16777216)+((bytes[34]&255)<<16)+((bytes[35]&255)<<8)+(bytes[36]&255);return {bytes:bytes,flags:flags,signCount:signCount};}
-function employeeById_(employeeId){return employees_().find(function(x){return employeeIdEqual_(x.id,employeeId)&&x.active!==false;})||null;}
-function sheetRowsObjects_(name,headers){const sh=ensureNamedSheet_(spreadsheet_(),name,headers),last=sh.getLastRow();if(last<2)return {sheet:sh,rows:[]};const vals=sh.getRange(2,1,last-1,headers.length).getValues();return {sheet:sh,rows:vals.map(function(v,i){const o={_row:i+2};headers.forEach(function(h,j){o[h]=v[j];});return o;})};}
-function activeBiometricDevices_(employeeId){return sheetRowsObjects_(BIOMETRIC_DEVICE_SHEET,BIOMETRIC_DEVICE_HEADERS).rows.filter(function(x){return employeeIdEqual_(x.employeeId,employeeId)&&String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||'');});}
-function activeGestureDevices_(employeeId){return sheetRowsObjects_(GESTURE_DEVICE_SHEET,GESTURE_DEVICE_HEADERS).rows.filter(function(x){return employeeIdEqual_(x.employeeId,employeeId)&&String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||'');});}
-function normalizeDeviceName_(v){const s=String(v||'這台裝置').replace(/[<>]/g,'').trim().slice(0,60);return s||'這台裝置';}
-function safeTransports_(value){let a=[];try{a=Array.isArray(value)?value:JSON.parse(String(value||'[]'));}catch(_e){}return (Array.isArray(a)?a:[]).map(function(x){return String(x||'').slice(0,20);}).filter(Boolean).slice(0,8);}
-
-function biometricRegisterBegin_(p){
-  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請先用員工編號＋PIN 重新登入'};
-  if(typeof BigInt!=='function')return {ok:false,message:'目前 Apps Script 執行環境不支援 WebAuthn 驗簽，請確認 appsscript.json 使用 V8 runtime'};
-  const current=activeBiometricDevices_(employee.id);if(current.length>=LOGIN_DEVICE_LIMIT_PER_EMPLOYEE)return {ok:false,message:'此員工已綁定 '+current.length+' 個生物辨識裝置；請先撤銷不用的裝置'};
-  const challenge=randomChallenge_(),challengeId=challengePut_('reg',{employeeId:employee.id,challenge:challenge,rpId:WEBAUTHN_RP_ID,origin:WEBAUTHN_ALLOWED_ORIGINS[0]});
-  const userId=base64UrlEncodeBytes_(sha256Bytes_('WTS-EMP|'+employeeIdKey_(employee.id)).slice(0,24));
-  return {ok:true,challengeId:challengeId,challenge:challenge,rpId:WEBAUTHN_RP_ID,rpName:'王泰山畜牧場',userId:userId,userName:String(employee.id||''),displayName:String(employee.name||employee.id||''),excludeCredentials:current.map(function(x){return {id:String(x.credentialId||''),transports:safeTransports_(x.transports)};})};
-}
-
-function biometricRegisterFinish_(p){
-  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
-  const ch=challengeTake_('reg',p.challengeId);if(!ch||!employeeIdEqual_(ch.employeeId,employee.id))return {ok:false,message:'生物辨識註冊已逾時，請重新開始'};
-  const client=parseClientData_(p.clientDataJSON),cd=client.obj;if(String(cd.type||'')!=='webauthn.create'||String(cd.challenge||'')!==String(ch.challenge||''))return {ok:false,message:'生物辨識註冊 challenge 驗證失敗'};
-  if(!allowedWebAuthnOrigin_(cd.origin))return {ok:false,message:'此生物辨識憑證不是從正式 GitHub 員工端建立'};
-  const ad=authDataCheck_(p.authenticatorData,WEBAUTHN_RP_ID),credentialId=String(p.credentialId||'').trim(),spki=String(p.publicKeySpki||'').trim();
-  if(!credentialId||credentialId.length>1500||!spki||spki.length>3000)return {ok:false,message:'生物辨識公開金鑰資料不完整'};
-  try{const q=extractP256PublicKey_(base64UrlDecodeBytes_(spki));if(!p256PointOnCurve_(q.x,q.y))throw new Error('curve');}catch(_e){return {ok:false,message:'只支援手機／電腦平台驗證器的 P-256 生物辨識憑證'};}
-  const store=sheetRowsObjects_(BIOMETRIC_DEVICE_SHEET,BIOMETRIC_DEVICE_HEADERS),now=isoNow_(),transports=JSON.stringify(safeTransports_(p.transports));
-  let existing=store.rows.find(function(x){return String(x.credentialId||'')===credentialId;});
-  const values=[credentialId,String(employee.id||''),normalizeDeviceName_(p.deviceName),spki,Number(ad.signCount||0),true,existing?String(existing.createdAt||now):now,now,'',String(cd.origin||''),WEBAUTHN_RP_ID,transports];
-  if(existing)store.sheet.getRange(existing._row,1,1,BIOMETRIC_DEVICE_HEADERS.length).setValues([values]);else store.sheet.appendRow(values);
-  return {ok:true,message:'已在這台裝置啟用 Face ID／Touch ID／指紋快速登入',device:{authType:'biometric',deviceId:credentialId,deviceName:normalizeDeviceName_(p.deviceName),createdAt:existing?String(existing.createdAt||now):now,lastUsedAt:now}};
-}
-
-function biometricLoginBegin_(p){
-  const employee=employeeById_(p.employeeId);if(!employee)return {ok:false,message:'員工編號不存在或目前已停用'};
-  const devices=activeBiometricDevices_(employee.id);if(!devices.length)return {ok:false,message:'這個員工尚未啟用生物辨識快速登入；請先用 6 位 PIN 登入後到「登入安全」啟用'};
-  const challenge=randomChallenge_(),challengeId=challengePut_('login',{employeeId:employee.id,challenge:challenge,rpId:WEBAUTHN_RP_ID});
-  return {ok:true,challengeId:challengeId,challenge:challenge,rpId:WEBAUTHN_RP_ID,allowCredentials:devices.map(function(x){return {id:String(x.credentialId||''),transports:safeTransports_(x.transports)};})};
-}
-
-function biometricLoginFinish_(p){
-  const ch=challengeTake_('login',p.challengeId);if(!ch)return {ok:false,message:'生物辨識登入已逾時，請重新操作'};
-  const employee=employeeById_(ch.employeeId);if(!employee)return {ok:false,message:'員工帳號目前不可登入'};
-  const credentialId=String(p.credentialId||'').trim(),store=sheetRowsObjects_(BIOMETRIC_DEVICE_SHEET,BIOMETRIC_DEVICE_HEADERS),device=store.rows.find(function(x){return String(x.credentialId||'')===credentialId&&employeeIdEqual_(x.employeeId,employee.id)&&String(x.active).toLowerCase()!=='false'&&!String(x.revokedAt||'');});
-  if(!device)return {ok:false,message:'此快速登入裝置已撤銷或不屬於這位員工'};
-  const client=parseClientData_(p.clientDataJSON),cd=client.obj;if(String(cd.type||'')!=='webauthn.get'||String(cd.challenge||'')!==String(ch.challenge||''))return {ok:false,message:'生物辨識登入 challenge 驗證失敗'};
-  if(!allowedWebAuthnOrigin_(cd.origin))return {ok:false,message:'生物辨識登入來源不是正式 GitHub 員工端'};
-  const ad=authDataCheck_(p.authenticatorData,WEBAUTHN_RP_ID),clientHash=sha256Bytes_(client.bytes),signedBytes=ad.bytes.concat(clientHash),messageHash=sha256Bytes_(signedBytes);
-  let verified=false;try{verified=verifyP256Ecdsa_(base64UrlDecodeBytes_(String(device.publicKeySpki||'')),base64UrlDecodeBytes_(String(p.signature||'')),messageHash);}catch(_e){verified=false;}
-  if(!verified)return {ok:false,message:'生物辨識簽章驗證失敗，請改用 PIN 登入或重新綁定此裝置'};
-  const oldCount=Number(device.signCount||0),newCount=Number(ad.signCount||0);if(oldCount>0&&newCount>0&&newCount<=oldCount)return {ok:false,message:'生物辨識計數器異常，為安全起見已拒絕登入；請用 PIN 重新綁定'};
-  store.sheet.getRange(device._row,5,1,4).setValues([[Math.max(oldCount,newCount),true,String(device.createdAt||isoNow_()),isoNow_()]]);
-  return Object.assign(newSessionForEmployee_(employee,'biometric',String(device.deviceName||'這台裝置')),{loginMethod:'biometric',deviceName:String(device.deviceName||'這台裝置')});
-}
-
-function gesturePatternValid_(pattern){const parts=String(pattern||'').split('-').filter(Boolean);if(parts.length<5||parts.length>9)return false;const seen={};for(let i=0;i<parts.length;i++){if(!/^[0-8]$/.test(parts[i])||seen[parts[i]])return false;seen[parts[i]]=true;}return true;}
-function gestureDigest_(employeeId,deviceId,salt,pattern){return sha256Hex_(String(salt||'')+'|'+employeeIdKey_(employeeId)+'|'+String(deviceId||'')+'|'+String(pattern||''));}
-function gestureRegister_(p){
-  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請先用 PIN 重新登入'};
-  const pattern=String(p.pattern||''),deviceId=String(p.deviceId||'').trim();if(!gesturePatternValid_(pattern))return {ok:false,message:'手勢至少連續 5 個不同圓點，且不可重複'};if(!/^[A-Za-z0-9_-]{12,120}$/.test(deviceId))return {ok:false,message:'手勢裝置識別不正確'};
-  const store=sheetRowsObjects_(GESTURE_DEVICE_SHEET,GESTURE_DEVICE_HEADERS),active=activeGestureDevices_(employee.id);let existing=store.rows.find(function(x){return String(x.deviceId||'')===deviceId&&employeeIdEqual_(x.employeeId,employee.id);});if(!existing&&active.length>=LOGIN_DEVICE_LIMIT_PER_EMPLOYEE)return {ok:false,message:'此員工已設定太多手勢登入裝置，請先撤銷不用的裝置'};
-  const salt=makeSyncKey_().slice(0,64),now=isoNow_(),values=[deviceId,String(employee.id||''),normalizeDeviceName_(p.deviceName),salt,gestureDigest_(employee.id,deviceId,salt,pattern),true,existing?String(existing.createdAt||now):now,now,''];
-  if(existing)store.sheet.getRange(existing._row,1,1,GESTURE_DEVICE_HEADERS.length).setValues([values]);else store.sheet.appendRow(values);
-  return {ok:true,message:'已在這台裝置啟用手勢快速登入',device:{authType:'gesture',deviceId:deviceId,deviceName:normalizeDeviceName_(p.deviceName),createdAt:existing?String(existing.createdAt||now):now,lastUsedAt:now}};
-}
-function constantTimeTextEqual_(a,b){a=String(a||'');b=String(b||'');if(a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0;}
-function gestureLogin_(p){
-  const employee=employeeById_(p.employeeId),deviceId=String(p.deviceId||'').trim(),pattern=String(p.pattern||'');if(!employee||!deviceId)return {ok:false,message:'這台裝置尚未設定手勢登入'};
-  const cache=CacheService.getScriptCache(),guardKey='gesturefail:'+employeeIdKey_(employee.id)+':'+deviceId.slice(0,32),failed=Number(cache.get(guardKey)||0);if(failed>=5)return {ok:false,message:'手勢連續錯誤次數過多，請 10 分鐘後再試或改用 PIN'};
-  const store=sheetRowsObjects_(GESTURE_DEVICE_SHEET,GESTURE_DEVICE_HEADERS),device=store.rows.find(function(x){return String(x.deviceId||'')===deviceId&&employeeIdEqual_(x.employeeId,employee.id)&&String(x.active).toLowerCase()!=='false'&&!String(x.revokedAt||'');});
-  if(!device||!gesturePatternValid_(pattern)||!constantTimeTextEqual_(gestureDigest_(employee.id,deviceId,device.salt,pattern),device.gestureHash)){cache.put(guardKey,String(failed+1),600);return {ok:false,message:'手勢不正確；可改用 6 位 PIN 登入'};}
-  cache.remove(guardKey);store.sheet.getRange(device._row,8).setValue(isoNow_());return Object.assign(newSessionForEmployee_(employee,'gesture',String(device.deviceName||'這台裝置')),{loginMethod:'gesture',deviceName:String(device.deviceName||'這台裝置')});
-}
-
-function loginDeviceObjectsForEmployee_(employeeId){
-  const bio=sheetRowsObjects_(BIOMETRIC_DEVICE_SHEET,BIOMETRIC_DEVICE_HEADERS).rows.filter(function(x){return employeeIdEqual_(x.employeeId,employeeId);}).map(function(x){return {authType:'biometric',deviceId:String(x.credentialId||''),employeeId:String(x.employeeId||''),deviceName:String(x.deviceName||''),active:String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||''),createdAt:String(x.createdAt||''),lastUsedAt:String(x.lastUsedAt||''),revokedAt:String(x.revokedAt||'')};});
-  const ges=sheetRowsObjects_(GESTURE_DEVICE_SHEET,GESTURE_DEVICE_HEADERS).rows.filter(function(x){return employeeIdEqual_(x.employeeId,employeeId);}).map(function(x){return {authType:'gesture',deviceId:String(x.deviceId||''),employeeId:String(x.employeeId||''),deviceName:String(x.deviceName||''),active:String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||''),createdAt:String(x.createdAt||''),lastUsedAt:String(x.lastUsedAt||''),revokedAt:String(x.revokedAt||'')};});
-  return bio.concat(ges).sort(function(a,b){return String(b.lastUsedAt||b.createdAt||'').localeCompare(String(a.lastUsedAt||a.createdAt||''));});
-}
-function loginDevices_(p){const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};return {ok:true,devices:loginDeviceObjectsForEmployee_(employee.id),webauthnRpId:WEBAUTHN_RP_ID};}
-function revokeDeviceRecord_(authType,deviceId,employeeId){const isBio=authType==='biometric',name=isBio?BIOMETRIC_DEVICE_SHEET:GESTURE_DEVICE_SHEET,headers=isBio?BIOMETRIC_DEVICE_HEADERS:GESTURE_DEVICE_HEADERS,key=isBio?'credentialId':'deviceId',store=sheetRowsObjects_(name,headers),row=store.rows.find(function(x){return String(x[key]||'')===String(deviceId||'')&&(!employeeId||employeeIdEqual_(x.employeeId,employeeId));});if(!row)return false;const activeCol=headers.indexOf('active')+1,revCol=headers.indexOf('revokedAt')+1;store.sheet.getRange(row._row,activeCol).setValue(false);store.sheet.getRange(row._row,revCol).setValue(isoNow_());return true;}
-function loginDeviceRevoke_(p){const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};const type=String(p.authType||''),id=String(p.deviceId||'');if(['biometric','gesture'].indexOf(type)<0||!id)return {ok:false,message:'裝置資料不完整'};const ok=revokeDeviceRecord_(type,id,employee.id);if(ok){revokeEmployeeSessions_(employee.id,'login device revoked');return {ok:true,message:'已撤銷這個快速登入裝置；目前 15 天登入狀態也已失效',sessionRevoked:true};}return {ok:false,message:'找不到這個裝置或已撤銷'};}
-function managerListLoginDevices_(){const emps=employees_(),names={};emps.forEach(function(e){names[employeeIdKey_(e.id)]=String(e.name||e.id||'');});const rows=[];sheetRowsObjects_(BIOMETRIC_DEVICE_SHEET,BIOMETRIC_DEVICE_HEADERS).rows.forEach(function(x){rows.push({authType:'biometric',deviceId:String(x.credentialId||''),employeeId:String(x.employeeId||''),employeeName:names[employeeIdKey_(x.employeeId)]||String(x.employeeId||''),deviceName:String(x.deviceName||''),active:String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||''),createdAt:String(x.createdAt||''),lastUsedAt:String(x.lastUsedAt||''),revokedAt:String(x.revokedAt||'')});});sheetRowsObjects_(GESTURE_DEVICE_SHEET,GESTURE_DEVICE_HEADERS).rows.forEach(function(x){rows.push({authType:'gesture',deviceId:String(x.deviceId||''),employeeId:String(x.employeeId||''),employeeName:names[employeeIdKey_(x.employeeId)]||String(x.employeeId||''),deviceName:String(x.deviceName||''),active:String(x.active).toLowerCase()!=='false'&&x.active!==false&&!String(x.revokedAt||''),createdAt:String(x.createdAt||''),lastUsedAt:String(x.lastUsedAt||''),revokedAt:String(x.revokedAt||'')});});rows.sort(function(a,b){return String(b.lastUsedAt||b.createdAt||'').localeCompare(String(a.lastUsedAt||a.createdAt||''));});return {ok:true,devices:rows,count:rows.length,generatedAt:isoNow_()};}
-function managerRevokeLoginDevice_(p){const type=String(p.authType||''),id=String(p.deviceId||''),employeeId=String(p.employeeId||'');if(['biometric','gesture'].indexOf(type)<0||!id)return {ok:false,message:'裝置資料不完整'};const ok=revokeDeviceRecord_(type,id,employeeId);if(ok){const sessions=revokeEmployeeSessions_(employeeId,'manager revoked login device');return {ok:true,message:'快速登入裝置已由主系統撤銷',revokedSessions:sessions};}return {ok:false,message:'找不到裝置或已撤銷'};}
-function revokeEmployeeLoginDevices_(employeeId,reason){const list=loginDeviceObjectsForEmployee_(employeeId);let n=0;list.forEach(function(d){if(d.active&&revokeDeviceRecord_(d.authType,d.deviceId,employeeId))n++;});return n;}
-
-// --- P-256 ECDSA verifier for Apps Script V8 (no WebCrypto / SubtleCrypto needed) ---
-const P256_P_=BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff');
-const P256_A_=((BigInt(-3)%P256_P_)+P256_P_)%P256_P_;
-const P256_B_=BigInt('0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b');
-const P256_N_=BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
-const P256_GX_=BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296');
-const P256_GY_=BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5');
-const P256_INF_={X:BigInt(0),Y:BigInt(1),Z:BigInt(0)};
-function p256Mod_(x,m){x=x%m;return x>=BigInt(0)?x:x+m;}
-function p256Inv_(a,m){a=p256Mod_(a,m);if(a===BigInt(0))throw new Error('inverse zero');let t=BigInt(0),nt=BigInt(1),r=m,nr=a;while(nr!==BigInt(0)){const q=r/nr,tmpT=t-q*nt,tmpR=r-q*nr;t=nt;nt=tmpT;r=nr;nr=tmpR;}if(r!==BigInt(1))throw new Error('not invertible');return p256Mod_(t,m);}
-function p256Inf_(P){return P.Z===BigInt(0);}
-function p256Double_(P){if(p256Inf_(P)||P.Y===BigInt(0))return P256_INF_;const X=P.X,Y=P.Y,Z=P.Z,XX=p256Mod_(X*X,P256_P_),YY=p256Mod_(Y*Y,P256_P_),YYYY=p256Mod_(YY*YY,P256_P_),ZZ=p256Mod_(Z*Z,P256_P_),S=p256Mod_(BigInt(2)*(p256Mod_((X+YY)*(X+YY),P256_P_)-XX-YYYY),P256_P_),M=p256Mod_(BigInt(3)*XX+P256_A_*p256Mod_(ZZ*ZZ,P256_P_),P256_P_),T=p256Mod_(M*M-BigInt(2)*S,P256_P_),X3=T,Y3=p256Mod_(M*(S-T)-BigInt(8)*YYYY,P256_P_),Z3=p256Mod_((Y+Z)*(Y+Z)-YY-ZZ,P256_P_);return {X:X3,Y:Y3,Z:Z3};}
-function p256Add_(P1,P2){if(p256Inf_(P1))return P2;if(p256Inf_(P2))return P1;const X1=P1.X,Y1=P1.Y,Z1=P1.Z,X2=P2.X,Y2=P2.Y,Z2=P2.Z,Z1Z1=p256Mod_(Z1*Z1,P256_P_),Z2Z2=p256Mod_(Z2*Z2,P256_P_),U1=p256Mod_(X1*Z2Z2,P256_P_),U2=p256Mod_(X2*Z1Z1,P256_P_),S1=p256Mod_(Y1*Z2*Z2Z2,P256_P_),S2=p256Mod_(Y2*Z1*Z1Z1,P256_P_);if(U1===U2){if(S1!==S2)return P256_INF_;return p256Double_(P1);}const H=p256Mod_(U2-U1,P256_P_),I=p256Mod_((BigInt(2)*H)*(BigInt(2)*H),P256_P_),J=p256Mod_(H*I,P256_P_),r=p256Mod_(BigInt(2)*(S2-S1),P256_P_),V=p256Mod_(U1*I,P256_P_),X3=p256Mod_(r*r-J-BigInt(2)*V,P256_P_),Y3=p256Mod_(r*(V-X3)-BigInt(2)*S1*J,P256_P_),Z3=p256Mod_(((Z1+Z2)*(Z1+Z2)-Z1Z1-Z2Z2)*H,P256_P_);return {X:X3,Y:Y3,Z:Z3};}
-function p256Mul_(P,k){let n=p256Mod_(k,P256_N_),R=P256_INF_,Q=P;while(n>BigInt(0)){if((n&BigInt(1))===BigInt(1))R=p256Add_(R,Q);Q=p256Double_(Q);n=n>>BigInt(1);}return R;}
-function p256AffineX_(P){if(p256Inf_(P))return null;const zi=p256Inv_(P.Z,P256_P_),z2=p256Mod_(zi*zi,P256_P_);return p256Mod_(P.X*z2,P256_P_);}
-function bytesBigInt_(bytes){let x=BigInt(0);(bytes||[]).forEach(function(v){x=(x<<BigInt(8))+BigInt(Number(v)&255);});return x;}
-function derReadLen_(b,o){let n=b[o++];if((n&128)===0)return {len:n,off:o};const c=n&127;if(c<1||c>4)throw new Error('DER length');n=0;for(let i=0;i<c;i++)n=(n<<8)|(b[o++]&255);return {len:n,off:o};}
-function parseDerSignature_(bytes){const b=bytes.map(function(x){return x&255;});let o=0;if(b[o++]!==48)throw new Error('DER sequence');let L=derReadLen_(b,o);o=L.off;if(b[o++]!==2)throw new Error('DER r');L=derReadLen_(b,o);o=L.off;let rb=b.slice(o,o+L.len);o+=L.len;if(b[o++]!==2)throw new Error('DER s');L=derReadLen_(b,o);o=L.off;let sb=b.slice(o,o+L.len);while(rb.length&&rb[0]===0)rb.shift();while(sb.length&&sb[0]===0)sb.shift();return {r:bytesBigInt_(rb),s:bytesBigInt_(sb)};}
-function extractP256PublicKey_(spki){const b=spki.map(function(x){return x&255;});for(let i=Math.max(0,b.length-80);i<=b.length-65;i++){if(b[i]===4&&i+65<=b.length){const x=bytesBigInt_(b.slice(i+1,i+33)),y=bytesBigInt_(b.slice(i+33,i+65));if(p256PointOnCurve_(x,y))return {x:x,y:y};}}throw new Error('P-256 SPKI');}
-function p256PointOnCurve_(x,y){return x>=BigInt(0)&&x<P256_P_&&y>=BigInt(0)&&y<P256_P_&&p256Mod_(y*y-(x*x*x+P256_A_*x+P256_B_),P256_P_)===BigInt(0);}
-function verifyP256Ecdsa_(spki,signature,messageHash){const sig=parseDerSignature_(signature),r=sig.r,s=sig.s;if(r<=BigInt(0)||r>=P256_N_||s<=BigInt(0)||s>=P256_N_)return false;const q=extractP256PublicKey_(spki),z=bytesBigInt_(messageHash),w=p256Inv_(s,P256_N_),u1=p256Mod_(z*w,P256_N_),u2=p256Mod_(r*w,P256_N_),G={X:P256_GX_,Y:P256_GY_,Z:BigInt(1)},Q={X:q.x,Y:q.y,Z:BigInt(1)},R=p256Add_(p256Mul_(G,u1),p256Mul_(Q,u2)),x=p256AffineX_(R);return x!==null&&p256Mod_(x,P256_N_)===r;}
 
 function syncPortalData_(rawJson) {
   let rows=[];
@@ -580,7 +377,7 @@ function syncPortalWorkPlan_(rawJson) {
   const now=isoNow_(),values=[],monthCounts={},tooLarge=[];
   monthList.forEach(function(month){
     const monthRows=rows.filter(function(r){return String((r&&(r.date||r.d))||'').slice(0,7)===month;});
-    const payload={version:String(plan.version||'W433_WORK_PLAN_V1'),generatedAt:String(plan.generatedAt||now),timezone:String(plan.timezone||TAIPEI_TZ),month:month,departments:Array.isArray(plan.departments)?plan.departments:[],rows:monthRows,sourceMode:String(plan.sourceMode||''),planningReady:plan.planningReady!==false,note:String(plan.note||'')};
+    const payload={version:String(plan.version||'W432_WORK_PLAN_V1'),generatedAt:String(plan.generatedAt||now),timezone:String(plan.timezone||TAIPEI_TZ),month:month,departments:Array.isArray(plan.departments)?plan.departments:[],rows:monthRows,sourceMode:String(plan.sourceMode||''),planningReady:plan.planningReady!==false,note:String(plan.note||'')};
     const text=JSON.stringify(payload);
     if(text.length>48000){tooLarge.push(month);return;}
     values.push([month,text,now]);monthCounts[month]=monthRows.length;
@@ -594,7 +391,7 @@ function syncPortalWorkPlan_(rawJson) {
 function portalWorkPlan_() {
   const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS);
   const last=sheet.getLastRow();
-  if(last<2)return {version:'W433_WORK_PLAN_V1',generatedAt:'',timezone:TAIPEI_TZ,months:[],departments:[],rows:[],sourceMode:'尚未同步',planningReady:false,note:'主系統尚未同步批次月曆重大工作事項。'};
+  if(last<2)return {version:'W432_WORK_PLAN_V1',generatedAt:'',timezone:TAIPEI_TZ,months:[],departments:[],rows:[],sourceMode:'尚未同步',planningReady:false,note:'主系統尚未同步批次月曆重大工作事項。'};
   const values=sheet.getRange(2,1,last-1,3).getValues(),rows=[],monthMeta=[],depMap={};let generatedAt='',sourceMode='',note='',planningReady=false;
   values.forEach(function(row){
     let p={};try{p=JSON.parse(String(row[1]||'{}'));}catch(_e){p={};}
@@ -605,7 +402,7 @@ function portalWorkPlan_() {
     if(p.generatedAt)generatedAt=String(p.generatedAt);if(p.sourceMode)sourceMode=String(p.sourceMode);if(p.note)note=String(p.note);if(p.planningReady!==false&&items.length)planningReady=true;
   });
   rows.sort(function(a,b){return String((a&&(a.date||a.d))||'').localeCompare(String((b&&(b.date||b.d))||''));});
-  return {version:'W433_WORK_PLAN_V1',generatedAt:generatedAt,timezone:TAIPEI_TZ,months:monthMeta.sort(function(a,b){return a.month.localeCompare(b.month);}),departments:Object.keys(depMap).map(function(k){return depMap[k];}),rows:rows,sourceMode:sourceMode,planningReady:planningReady,note:note};
+  return {version:'W432_WORK_PLAN_V1',generatedAt:generatedAt,timezone:TAIPEI_TZ,months:monthMeta.sort(function(a,b){return a.month.localeCompare(b.month);}),departments:Object.keys(depMap).map(function(k){return depMap[k];}),rows:rows,sourceMode:sourceMode,planningReady:planningReady,note:note};
 }
 
 function portalSnapshot_(employeeId) {
@@ -986,19 +783,8 @@ function syncEmployees_(rawJson) {
       active:x.active !== false
     });
   }
-  const previous=employees_(),prevBy={};previous.forEach(function(x){prevBy[employeeIdKey_(x.id)]=x;});
-  let revokedDevices=0,revokedSessions=0;
-  cleaned.forEach(function(x){
-    const old=prevBy[employeeIdKey_(x.id)];
-    if(old&&(String(old.pin||'')!==String(x.pin||'')||(old.active!==false&&x.active===false))){
-      revokedDevices+=revokeEmployeeLoginDevices_(x.id,'PIN/status changed');
-      revokedSessions+=revokeEmployeeSessions_(x.id,'PIN/status changed');
-    }
-  });
-  const newKeys={};cleaned.forEach(function(x){newKeys[employeeIdKey_(x.id)]=true;});
-  previous.forEach(function(old){if(!newKeys[employeeIdKey_(old.id)]){revokedDevices+=revokeEmployeeLoginDevices_(old.id,'employee removed');revokedSessions+=revokeEmployeeSessions_(old.id,'employee removed');}});
   PropertiesService.getScriptProperties().setProperty('EMPLOYEES_JSON', JSON.stringify(cleaned));
-  return {ok:true, count:cleaned.length, revokedLoginDevices:revokedDevices, revokedSessions:revokedSessions, updatedAt:isoNow_()};
+  return {ok:true, count:cleaned.length, updatedAt:isoNow_()};
 }
 
 function employees_() {

@@ -1,15 +1,43 @@
 (function(){
   'use strict';
-  // W433 FIX369 CLEAN | Current formal employee portal bridge configuration.
+  // W432 FIX368 CLEAN | 15-day persistent login + robust widest-view camera.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
   const CFG=window.WTS_ATTENDANCE_CONFIG||{};
   const $=id=>document.getElementById(id);
-  const SESSION_TOKEN_KEY='wts_att_session_15d';
-  const SESSION_EMPLOYEE_KEY='wts_att_employee_15d';
-  const SESSION_EXPIRES_KEY='wts_att_session_expires_15d';
-  const state={employee:null,token:'',sessionExpiresAt:'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'1X',securityDevices:[],gestureMode:'',gestureFirst:'',gestureCallback:null};
+  const LOGIN_REMEMBER_MS=15*24*60*60*1000;
+  const LOGIN_TOKEN_KEY='wts_att_session_15d';
+  const LOGIN_EMPLOYEE_KEY='wts_att_employee_15d';
+  const LOGIN_EXPIRES_KEY='wts_att_session_expires_15d';
+  const LEGACY_SESSION_KEY='wts_att_session';
+  const LEGACY_EMPLOYEE_KEY='wts_att_employee';
+  function savedLogin(){
+    try{
+      const token=String(localStorage.getItem(LOGIN_TOKEN_KEY)||'').trim();
+      const employee=JSON.parse(localStorage.getItem(LOGIN_EMPLOYEE_KEY)||'null');
+      const expiresAt=Number(localStorage.getItem(LOGIN_EXPIRES_KEY)||0);
+      if(token&&employee&&expiresAt>Date.now())return {token,employee,expiresAt};
+      if(token||employee||expiresAt)clearSavedLogin(false);
+    }catch(_e){clearSavedLogin(false);}
+    return null;
+  }
+  function clearSavedLogin(clearEmployeeId=true){
+    try{localStorage.removeItem(LOGIN_TOKEN_KEY);localStorage.removeItem(LOGIN_EMPLOYEE_KEY);localStorage.removeItem(LOGIN_EXPIRES_KEY);}catch(_e){}
+    try{sessionStorage.removeItem(LEGACY_SESSION_KEY);sessionStorage.removeItem(LEGACY_EMPLOYEE_KEY);}catch(_e){}
+    if(clearEmployeeId){try{localStorage.removeItem('wts_att_employee_id');}catch(_e){}}
+  }
+  function storeSavedLogin(token,employee,expiresAt){
+    const exp=Number(expiresAt)||Date.now()+LOGIN_REMEMBER_MS;
+    localStorage.setItem(LOGIN_TOKEN_KEY,String(token||''));
+    localStorage.setItem(LOGIN_EMPLOYEE_KEY,JSON.stringify(employee||{}));
+    localStorage.setItem(LOGIN_EXPIRES_KEY,String(exp));
+    // Retire the old tab-only session keys so only one login source exists.
+    try{sessionStorage.removeItem(LEGACY_SESSION_KEY);sessionStorage.removeItem(LEGACY_EMPLOYEE_KEY);}catch(_e){}
+    return exp;
+  }
+  const persistedLogin=savedLogin();
+  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -50,30 +78,6 @@
   function tick(){const p=twParts();$('todayText').textContent=p.date+'｜台灣時間';$('clockText').textContent=p.time;}
   tick();setInterval(tick,1000);
   function status(el,msg,kind=''){el.textContent=msg||'';el.className='status'+(kind?' '+kind:'');}
-  function b64urlToBytes(s){s=String(s||'').replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const raw=atob(s),out=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i);return out;}
-  function bytesToB64url(buf){const a=new Uint8Array(buf),chunk=0x8000;let s='';for(let i=0;i<a.length;i+=chunk)s+=String.fromCharCode.apply(null,a.subarray(i,i+chunk));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
-  function employeeKey(v){return String(v||'').trim().toUpperCase();}
-  function officialBiometricOrigin(){return location.origin==='https://zinrow2005-cell.github.io';}
-  function detectDeviceName(){const ua=navigator.userAgent||'',p=navigator.platform||'';if(/iPhone/i.test(ua))return 'iPhone';if(/iPad/i.test(ua)||(/Mac/i.test(p)&&navigator.maxTouchPoints>1))return 'iPad';if(/Android/i.test(ua)){const m=ua.match(/Android[^;]*;\s*([^;)]+)[;)]/i);return m&&m[1]?`Android｜${m[1].trim()}`:'Android 手機';}if(/Windows/i.test(ua))return 'Windows 電腦';if(/Macintosh|Mac OS/i.test(ua))return 'Mac';return '這台裝置';}
-  function gestureDeviceStorageKey(id){return 'wts_gesture_device_'+employeeKey(id);}
-  function localGestureDeviceId(id){try{return localStorage.getItem(gestureDeviceStorageKey(id))||'';}catch(_e){return '';}}
-  function makeLocalDeviceId(){const b=new Uint8Array(24);crypto.getRandomValues(b);return bytesToB64url(b);}
-  function platformAuthSupported(){return !!(window.PublicKeyCredential&&navigator.credentials&&navigator.credentials.create&&navigator.credentials.get);}
-  async function platformAuthenticatorAvailable(){if(!platformAuthSupported()||!PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable)return platformAuthSupported();try{return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();}catch(_e){return false;}}
-  function clearRememberedSession(){
-    state.token='';state.employee=null;state.sessionExpiresAt='';state.portal=null;
-    try{localStorage.removeItem(SESSION_TOKEN_KEY);localStorage.removeItem(SESSION_EMPLOYEE_KEY);localStorage.removeItem(SESSION_EXPIRES_KEY);}catch(_e){}
-    try{sessionStorage.removeItem('wts_att_session');sessionStorage.removeItem('wts_att_employee');}catch(_e){}
-  }
-  function sessionExpiryValid(value){const t=Date.parse(String(value||''));return Number.isFinite(t)&&t>Date.now();}
-  function completeEmployeeLogin(d,fallbackId){
-    state.token=String(d.sessionToken||state.token||'');state.employee=d.employee||state.employee;state.sessionExpiresAt=String(d.sessionExpiresAt||state.sessionExpiresAt||'');
-    if(!state.token||!state.employee)throw new Error('登入回傳資料不完整');
-    try{localStorage.setItem(SESSION_TOKEN_KEY,state.token);localStorage.setItem(SESSION_EMPLOYEE_KEY,JSON.stringify(state.employee));localStorage.setItem(SESSION_EXPIRES_KEY,state.sessionExpiresAt);}catch(_e){}
-    try{sessionStorage.removeItem('wts_att_session');sessionStorage.removeItem('wts_att_employee');}catch(_e){}
-    localStorage.setItem('wts_att_employee_id',String(state.employee?.id||fallbackId||''));$('employeeId').value=String(state.employee?.id||fallbackId||'');$('employeePin').value='';showPunch();
-  }
-  function refreshQuickLoginButtons(){const id=$('employeeId')?.value.trim()||'',bio=$('biometricLoginBtn'),ges=$('gestureLoginBtn');if(bio){bio.hidden=!id||!platformAuthSupported()||!officialBiometricOrigin();bio.disabled=!id;}if(ges){ges.hidden=!id||!localGestureDeviceId(id);ges.disabled=!id;}const note=$('quickLoginNote');if(note&&!officialBiometricOrigin())note.textContent='生物辨識快速登入只在正式 GitHub HTTPS 員工端啟用；本機預覽仍可使用 PIN。';}
   function setStep(key,mode){document.querySelectorAll('.step').forEach(x=>{if(x.dataset.step===key){x.classList.remove('active','done');if(mode)x.classList.add(mode);}});}
   function completeBefore(key){const order=['gps','photo','line','submit'];const i=order.indexOf(key);order.forEach((k,n)=>setStep(k,n<i?'done':n===i?'active':''));}
   function randomId(){return 'REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);}
@@ -91,91 +95,32 @@
   }
   window.addEventListener('message',ev=>{
     const d=ev.data;if(!d||d.channel!==BRIDGE_CHANNEL||!d.requestId)return;
-    const p=pending.get(d.requestId);if(!p)return;clearTimeout(p.timer);pending.delete(d.requestId);
-    if(!d.ok&&/登入已逾時|登入已失效/.test(String(d.message||''))){
-      clearRememberedSession();
-      if($('punchPanel'))$('punchPanel').hidden=true;
-      if($('loginPanel'))$('loginPanel').hidden=false;
-      if($('loginStatus'))status($('loginStatus'),'15 天登入狀態已失效，請重新登入。','error');
-    }
-    d.ok?p.resolve(d):p.reject(new Error(d.message||'雲端橋接失敗'));
+    const p=pending.get(d.requestId);if(!p)return;clearTimeout(p.timer);pending.delete(d.requestId);d.ok?p.resolve(d):p.reject(new Error(d.message||'雲端橋接失敗'));
   });
-  async function restoreEmployee(){
+  function restoreEmployee(){
+    if(state.employee&&state.token&&state.sessionExpiresAt>Date.now()){
+      showPunch();
+      if($('portalSyncText'))$('portalSyncText').textContent='已使用這台裝置的 15 天登入狀態；系統仍會向雲端確認帳號是否有效。';
+    }else if(state.token||state.employee){clearSavedLogin(false);state.token='';state.employee=null;state.sessionExpiresAt=0;}
     const remembered=localStorage.getItem('wts_att_employee_id')||'';$('employeeId').value=remembered;
-    let token='',employee=null,expires='';
-    try{token=localStorage.getItem(SESSION_TOKEN_KEY)||'';employee=JSON.parse(localStorage.getItem(SESSION_EMPLOYEE_KEY)||'null');expires=localStorage.getItem(SESSION_EXPIRES_KEY)||'';}catch(_e){}
-    if(token&&employee&&sessionExpiryValid(expires)){
-      state.token=token;state.employee=employee;state.sessionExpiresAt=expires;
-      status($('loginStatus'),'正在恢復 15 天登入狀態…');
-      try{
-        const d=await postBridge('sessionCheck',{sessionToken:token},15000);
-        state.token=token;completeEmployeeLogin(Object.assign({},d,{sessionToken:token}),employee.id);
-        return;
-      }catch(e){
-        let stillStored=false;
-        try{stillStored=!!localStorage.getItem(SESSION_TOKEN_KEY);}catch(_e){}
-        if(stillStored){
-          state.token='';state.employee=null;state.sessionExpiresAt='';state.portal=null;
-          status($('loginStatus'),'暫時無法向雲端驗證 15 天登入狀態；已保留本機登入憑證，稍後重新開啟會再驗證。','error');
-        }else{
-          clearRememberedSession();
-          status($('loginStatus'),'原登入狀態已失效，請重新登入。','');
-        }
-      }
-    }else if(token||employee||expires){
-      clearRememberedSession();
-    }
-    refreshQuickLoginButtons();
   }
   function showPunch(){
     $('loginPanel').hidden=true;$('punchPanel').hidden=false;
     $('employeeName').textContent=state.employee?.name||state.employee?.employeeName||state.employee?.id||'員工';
-    const exp=state.sessionExpiresAt&&sessionExpiryValid(state.sessionExpiresAt)?new Date(state.sessionExpiresAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'';
-    $('employeeMeta').textContent=`員工編號 ${state.employee?.id||state.employee?.employeeId||'—'}${state.employee?.department?'｜'+state.employee.department:''}${exp?'｜免 PIN 至 '+exp:''}`;
+    $('employeeMeta').textContent=`員工編號 ${state.employee?.id||state.employee?.employeeId||'—'}${state.employee?.department?'｜'+state.employee.department:''}`;
     renderToday();switchPortalView('home');loadPortalData();
   }
   async function login(){
     if(state.busy)return;const id=$('employeeId').value.trim();const pin=$('employeePin').value.trim();
     if(!id||!pin){status($('loginStatus'),'請輸入員工編號與打卡 PIN。','error');return;}
     state.busy=true;$('loginBtn').disabled=true;status($('loginStatus'),'正在驗證員工身分…');
-    try{const d=await postBridge('login',{employeeId:id,pin,deviceName:detectDeviceName()});completeEmployeeLogin(d,id);}
+    try{const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;state.sessionExpiresAt=storeSavedLogin(state.token,state.employee,Number(d.sessionExpiresAtMs)||Date.now()+LOGIN_REMEMBER_MS);localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();}
     catch(e){status($('loginStatus'),e.message,'error');}
     finally{state.busy=false;$('loginBtn').disabled=false;}
   }
-  async function biometricQuickLogin(){
-    if(state.busy)return;const id=$('employeeId').value.trim();if(!id){status($('loginStatus'),'請先輸入員工編號。','error');return;}if(!officialBiometricOrigin()){status($('loginStatus'),'生物辨識快速登入只支援正式 GitHub HTTPS 員工端。','error');return;}if(!(await platformAuthenticatorAvailable())){status($('loginStatus'),'這台裝置或瀏覽器目前沒有可用的 Face ID／Touch ID／指紋平台驗證器。','error');return;}
-    state.busy=true;$('biometricLoginBtn').disabled=true;status($('loginStatus'),'正在啟動手機生物辨識…');
-    try{const b=await postBridge('biometricLoginBegin',{employeeId:id},15000);const cred=await navigator.credentials.get({publicKey:{challenge:b64urlToBytes(b.challenge),rpId:b.rpId,allowCredentials:(b.allowCredentials||[]).map(x=>({type:'public-key',id:b64urlToBytes(x.id),transports:Array.isArray(x.transports)?x.transports:undefined})),userVerification:'required',timeout:60000}});if(!cred)throw new Error('未取得生物辨識憑證');const r=cred.response,d=await postBridge('biometricLoginFinish',{challengeId:b.challengeId,credentialId:bytesToB64url(cred.rawId),clientDataJSON:bytesToB64url(r.clientDataJSON),authenticatorData:bytesToB64url(r.authenticatorData),signature:bytesToB64url(r.signature)},20000);completeEmployeeLogin(d,id);}
-    catch(e){const name=e&&e.name||'';status($('loginStatus'),name==='NotAllowedError'?'已取消生物辨識，或驗證逾時。可改用 6 位 PIN。':(e.message||String(e)),'error');}
-    finally{state.busy=false;refreshQuickLoginButtons();}
-  }
-  async function enableBiometric(){
-    if(!state.token||!state.employee)return;if(!officialBiometricOrigin()){status($('securityStatus'),'請在正式 GitHub Pages HTTPS 員工端啟用生物辨識；本機預覽不綁定。','error');return;}if(!(await platformAuthenticatorAvailable())){status($('securityStatus'),'此裝置沒有可用的平台生物辨識驗證器。','error');return;}
-    const btn=$('enableBiometricBtn');btn.disabled=true;status($('securityStatus'),'正在建立這台裝置的生物辨識憑證…');
-    try{const b=await postBridge('biometricRegisterBegin',{sessionToken:state.token},15000);const cred=await navigator.credentials.create({publicKey:{rp:{id:b.rpId,name:b.rpName||'王泰山畜牧場'},user:{id:b64urlToBytes(b.userId),name:b.userName,displayName:b.displayName},challenge:b64urlToBytes(b.challenge),pubKeyCredParams:[{type:'public-key',alg:-7}],timeout:60000,attestation:'none',authenticatorSelection:{authenticatorAttachment:'platform',residentKey:'discouraged',userVerification:'required'},excludeCredentials:(b.excludeCredentials||[]).map(x=>({type:'public-key',id:b64urlToBytes(x.id),transports:Array.isArray(x.transports)?x.transports:undefined}))}});if(!cred)throw new Error('未取得生物辨識憑證');const r=cred.response;if(typeof r.getPublicKey!=='function'||typeof r.getAuthenticatorData!=='function')throw new Error('目前瀏覽器版本太舊，無法安全匯出生物辨識公開金鑰；請更新 iOS/Android 瀏覽器');const pub=r.getPublicKey(),auth=r.getAuthenticatorData(),transports=typeof r.getTransports==='function'?r.getTransports():[];const d=await postBridge('biometricRegisterFinish',{sessionToken:state.token,challengeId:b.challengeId,credentialId:bytesToB64url(cred.rawId),clientDataJSON:bytesToB64url(r.clientDataJSON),authenticatorData:bytesToB64url(auth),publicKeySpki:bytesToB64url(pub),transports:JSON.stringify(transports),deviceName:detectDeviceName()},20000);status($('securityStatus'),d.message||'生物辨識快速登入已啟用','ok');await loadSecurityDevices();refreshQuickLoginButtons();}
-    catch(e){status($('securityStatus'),e&&e.name==='NotAllowedError'?'已取消生物辨識設定。':(e.message||String(e)),'error');}
-    finally{btn.disabled=false;}
-  }
-  async function loadSecurityDevices(){if(!state.token)return;const list=$('securityDeviceList');if(list)list.innerHTML='<p class="muted">正在讀取快速登入裝置…</p>';try{const d=await postBridge('loginDevices',{sessionToken:state.token},15000);state.securityDevices=Array.isArray(d.devices)?d.devices:[];renderSecurityDevices();}catch(e){if(list)list.innerHTML=`<p class="muted">${esc(e.message||e)}</p>`;}}
-  function renderSecurityDevices(){const list=$('securityDeviceList');if(!list)return;const rows=state.securityDevices||[];if(!rows.length){list.innerHTML='<p class="muted">目前尚未綁定快速登入裝置。</p>';return;}list.innerHTML=rows.map(d=>`<div class="security-device ${d.active?'':'revoked'}"><div><b>${d.authType==='biometric'?'🔐 生物辨識':'⌁ 手勢'}｜${esc(d.deviceName||'裝置')}</b><span>${d.active?'已啟用':'已撤銷'}｜建立 ${esc(d.createdAt||'—')}｜最後使用 ${esc(d.lastUsedAt||'—')}</span></div>${d.active?`<button class="ghost" type="button" data-revoke-device="${esc(d.deviceId)}" data-revoke-type="${esc(d.authType)}">撤銷</button>`:''}</div>`).join('');list.querySelectorAll('[data-revoke-device]').forEach(btn=>btn.addEventListener('click',()=>revokeLoginDevice(btn.dataset.revokeType,btn.dataset.revokeDevice)));}
-  async function revokeLoginDevice(type,id){if(!confirm('確定撤銷這個快速登入裝置？撤銷後目前 15 天登入狀態也會失效，仍可用員工編號＋PIN 重新登入。'))return;try{const d=await postBridge('loginDeviceRevoke',{sessionToken:state.token,authType:type,deviceId:id},15000);if(type==='gesture'&&String(id)===localGestureDeviceId(currentEmployeeId()))try{localStorage.removeItem(gestureDeviceStorageKey(currentEmployeeId()));}catch(_e){}if(d.sessionRevoked){clearRememberedSession();$('punchPanel').hidden=true;$('loginPanel').hidden=false;status($('loginStatus'),d.message||'裝置已撤銷，請重新登入。','ok');return;}status($('securityStatus'),d.message||'已撤銷','ok');await loadSecurityDevices();refreshQuickLoginButtons();}catch(e){status($('securityStatus'),e.message||String(e),'error');}}
-  async function updateBiometricSupport(){const el=$('biometricSupportText');if(!el)return;if(!officialBiometricOrigin()){el.textContent='本機預覽不啟用；請使用正式 GitHub HTTPS 網址。';$('enableBiometricBtn').disabled=true;return;}const ok=await platformAuthenticatorAvailable();el.textContent=ok?'此裝置可使用系統生物辨識／螢幕鎖驗證。':'此裝置目前未偵測到可用的平台驗證器。';$('enableBiometricBtn').disabled=!ok;}
-  async function gestureQuickLogin(){const id=$('employeeId').value.trim(),deviceId=localGestureDeviceId(id);if(!id||!deviceId){status($('loginStatus'),'這台裝置尚未設定手勢登入，請先用 PIN 登入後設定。','error');return;}openGesture('login',async pattern=>{status($('loginStatus'),'正在驗證手勢…');try{const d=await postBridge('gestureLogin',{employeeId:id,deviceId,pattern},15000);completeEmployeeLogin(d,id);}catch(e){status($('loginStatus'),e.message||String(e),'error');}});}
-  function enableGesture(){if(!state.token||!state.employee)return;openGesture('setup1',pattern=>{state.gestureFirst=pattern;openGesture('setup2',async second=>{if(second!==state.gestureFirst){state.gestureFirst='';status($('securityStatus'),'兩次手勢不同，請重新設定。','error');return;}let deviceId=localGestureDeviceId(currentEmployeeId());if(!deviceId){deviceId=makeLocalDeviceId();try{localStorage.setItem(gestureDeviceStorageKey(currentEmployeeId()),deviceId);}catch(_e){}}try{const d=await postBridge('gestureRegister',{sessionToken:state.token,deviceId,pattern:second,deviceName:detectDeviceName()},15000);status($('securityStatus'),d.message||'手勢登入已啟用','ok');state.gestureFirst='';await loadSecurityDevices();refreshQuickLoginButtons();}catch(e){status($('securityStatus'),e.message||String(e),'error');}});});}
-  function openGesture(mode,cb){state.gestureMode=mode;state.gestureCallback=cb;const ov=$('gestureOverlay'),title=$('gestureTitle'),hint=$('gestureHint');if(title)title.textContent=mode==='login'?'手勢快速登入':mode==='setup2'?'再次繪製同一個手勢':'設定手勢快速登入';if(hint)hint.textContent=mode==='login'?'請繪製你在這台裝置設定的手勢。':'請連續滑過至少 5 個不同圓點。';ov.hidden=false;resetGestureBoard();}
-  function closeGesture(){const ov=$('gestureOverlay');if(ov)ov.hidden=true;state.gestureCallback=null;resetGestureBoard();}
-  let gestureNodes=[],gestureDrawing=false;
-  function resetGestureBoard(){gestureNodes=[];gestureDrawing=false;document.querySelectorAll('.gesture-dot').forEach(x=>x.classList.remove('on'));drawGestureLines();if($('gestureCount'))$('gestureCount').textContent='尚未繪製';}
-  function addGestureNode(el){if(!el)return;const n=String(el.dataset.node||'');if(!/^[0-8]$/.test(n)||gestureNodes.includes(n))return;gestureNodes.push(n);el.classList.add('on');drawGestureLines();$('gestureCount').textContent=`已連接 ${gestureNodes.length} 個圓點`;}
-  function drawGestureLines(){const svg=$('gestureLines'),board=$('gestureBoard');if(!svg||!board)return;const br=board.getBoundingClientRect();svg.setAttribute('viewBox',`0 0 ${Math.max(1,br.width)} ${Math.max(1,br.height)}`);svg.innerHTML='';for(let i=1;i<gestureNodes.length;i++){const a=board.querySelector(`[data-node="${gestureNodes[i-1]}"]`),b=board.querySelector(`[data-node="${gestureNodes[i]}"]`);if(!a||!b)continue;const ar=a.getBoundingClientRect(),bb=b.getBoundingClientRect(),line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',String(ar.left-br.left+ar.width/2));line.setAttribute('y1',String(ar.top-br.top+ar.height/2));line.setAttribute('x2',String(bb.left-br.left+bb.width/2));line.setAttribute('y2',String(bb.top-br.top+bb.height/2));svg.appendChild(line);}}
-  function finishGesture(){if(!gestureDrawing)return;gestureDrawing=false;const pattern=gestureNodes.join('-');if(gestureNodes.length<5){$('gestureHint').textContent='至少要連接 5 個不同圓點，請再試一次。';resetGestureBoard();return;}const cb=state.gestureCallback;closeGesture();if(typeof cb==='function')cb(pattern);}
-  async function logout(){
-    cancelFlow();const token=state.token;
-    if(token){try{await postBridge('logout',{sessionToken:token},8000);}catch(_e){}}
-    clearRememberedSession();$('punchPanel').hidden=true;$('loginPanel').hidden=false;status($('loginStatus'),'已登出；這台裝置的 15 天登入狀態已清除。','ok');refreshQuickLoginButtons();
-  }
+  async function logout(){const token=state.token;cancelFlow();state.token='';state.employee=null;state.portal=null;state.sessionExpiresAt=0;clearSavedLogin(false);$('punchPanel').hidden=true;$('loginPanel').hidden=false;status($('loginStatus'),'已登出；這台裝置的 15 天登入狀態已清除。','ok');if(token){try{await postBridge('logout',{sessionToken:token},7000);}catch(_e){}}}
   function switchPortalView(view){
-    const map={home:'portalHomeView',punch:'portalPunchView',attendance:'portalAttendanceView',schedule:'portalScheduleView',workplan:'portalWorkPlanView',tasks:'portalTasksView',requests:'portalRequestsView',payroll:'portalPayrollView',profile:'portalProfileView',security:'portalSecurityView'};
+    const map={home:'portalHomeView',punch:'portalPunchView',attendance:'portalAttendanceView',schedule:'portalScheduleView',workplan:'portalWorkPlanView',tasks:'portalTasksView',requests:'portalRequestsView',payroll:'portalPayrollView',profile:'portalProfileView'};
     const v=map[view]?view:'home';state.portalView=v;
     Object.entries(map).forEach(([k,id])=>{const el=$(id);if(el)el.hidden=k!==v;});
     document.querySelectorAll('[data-portal-nav]').forEach(b=>b.classList.toggle('active',b.dataset.portalNav===v));
@@ -183,7 +128,6 @@
     if(v==='requests')renderRequestForms();
     if(v==='schedule')renderSchedule();
     if(v==='workplan')renderWorkPlan();
-    if(v==='security'){updateBiometricSupport();loadSecurityDevices();}
     if(v==='tasks')renderTasks();
     if(v==='payroll')renderPayrollAvailability();
     else{state.payslip=null;if($('payrollPin'))$('payrollPin').value='';if($('payslipPanel'))$('payslipPanel').hidden=true;}
@@ -270,8 +214,14 @@
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='已同步';
       if($('portalSyncText'))$('portalSyncText').textContent=`資料時間 ${state.portal.updatedAt||d.serverNow||'—'}｜若主管剛修改資料，請等主系統下一次同步。`;
     }catch(e){
+      const msg=String(e?.message||e||'');
+      if(/登入已逾時|重新登入|Session.*失效/i.test(msg)){
+        state.token='';state.employee=null;state.portal=null;state.sessionExpiresAt=0;clearSavedLogin(false);
+        $('punchPanel').hidden=true;$('loginPanel').hidden=false;
+        status($('loginStatus'),'登入狀態已失效，請重新輸入員工編號與 PIN。','error');
+      }
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='待同步';
-      if($('portalSyncText'))$('portalSyncText').textContent='員工自助資料尚未同步完成：'+(e.message||e);
+      if($('portalSyncText'))$('portalSyncText').textContent='員工自助資料尚未同步完成：'+msg;
     }finally{state.portalBusy=false;}
   }
   function renderPortalData(){
@@ -446,10 +396,24 @@
 
   function updateCameraStamp(){const now=twParts();if($('cameraStampFarm'))$('cameraStampFarm').textContent=CFG.farmName||'王泰山畜牧場';if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';if($('cameraStampTime'))$('cameraStampTime').textContent=`台灣時間 ${now.date} ${now.time}`;}
   function startCameraStamp(){updateCameraStamp();if(state.cameraStampTimer)clearInterval(state.cameraStampTimer);state.cameraStampTimer=setInterval(updateCameraStamp,1000);if($('cameraStamp'))$('cameraStamp').hidden=false;}
-  function enterCameraFullscreen(){const wrap=$('cameraWrap');if(wrap){wrap.classList.add('camera-fullscreen');document.body.classList.add('camera-live');}if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=state.cameraZoomLabel||'1X';}
+  function updateCameraZoomLabels(){const label=state.cameraZoomLabel||'最廣';if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=label;if($('cameraZoomStatic'))$('cameraZoomStatic').textContent=label;}
+  function enterCameraFullscreen(){const wrap=$('cameraWrap');if(wrap){wrap.hidden=false;wrap.classList.add('camera-fullscreen');document.body.classList.add('camera-live');}updateCameraZoomLabels();}
   function exitCameraFullscreen(){const wrap=$('cameraWrap');if(wrap)wrap.classList.remove('camera-fullscreen');document.body.classList.remove('camera-live');}
-  async function forceOneXZoom(){const track=state.stream?.getVideoTracks?.()[0];state.cameraZoomLabel='1X';if(!track)return;try{const caps=track.getCapabilities?.()||{};if(caps.zoom!==undefined){let target=1;if(typeof caps.zoom==='object'){const min=Number(caps.zoom.min),max=Number(caps.zoom.max);if(Number.isFinite(min))target=Math.max(min,target);if(Number.isFinite(max))target=Math.min(max,target);}await track.applyConstraints({advanced:[{zoom:target}]});state.cameraZoomLabel='1X';}}catch(_e){state.cameraZoomLabel='1X';}if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=state.cameraZoomLabel;}
-  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}exitCameraFullscreen();}
+  function zoomLabel_(value){const n=Number(value);if(!Number.isFinite(n))return '最廣';const rounded=Math.round(n*100)/100;return `${String(rounded).replace(/\.0+$/,'')}X`; }
+  async function forceMinimumZoom(){
+    const track=state.stream?.getVideoTracks?.()[0];state.cameraZoomLabel='最廣';if(!track){updateCameraZoomLabels();return;}
+    try{
+      const caps=track.getCapabilities?.()||{},settings=track.getSettings?.()||{};
+      if(caps.zoom!==undefined){
+        let target=null;
+        if(typeof caps.zoom==='object'){const min=Number(caps.zoom.min);if(Number.isFinite(min))target=min;}
+        else if(Number.isFinite(Number(caps.zoom)))target=Number(caps.zoom);
+        if(target!==null){await track.applyConstraints({advanced:[{zoom:target}]});state.cameraZoomLabel=zoomLabel_(target);}
+      }else if(Number.isFinite(Number(settings.zoom))){state.cameraZoomLabel=zoomLabel_(settings.zoom);}
+    }catch(_e){state.cameraZoomLabel='最廣';}
+    updateCameraZoomLabels();
+  }
+  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}if($('cameraLoading'))$('cameraLoading').hidden=true;exitCameraFullscreen();}
   function clearPhoto(){if(state.photoUrl)URL.revokeObjectURL(state.photoUrl);state.photoUrl='';state.photoBlob=null;state.photoTakenAt='';state.lineShared=false;state.lineShareMethod='';state.shareBusy=false;state.lastShareAttemptAt=0;closeConfirm('photoReviewOverlay');closeConfirm('photoConfirmOverlay');closeConfirm('lineResultOverlay');$('photoPreview').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;$('faceGuide').hidden=false;if($('cameraStamp'))$('cameraStamp').hidden=false;$('photoActions').hidden=true;if($('photoReviewBox'))$('photoReviewBox').hidden=true;$('lineConfirm').hidden=true;$('submitPunchBtn').hidden=true;$('downloadPhotoLink').hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;}
   function cancelFlow(){stopCamera();clearPhoto();state.type='';state.location=null;state.locationLabel='';$('flowPanel').hidden=true;status($('flowStatus'),'');}
   function beginFlow(type){const seq=updatePunchActionState();if(type!==seq.nextType){const msg=seq.openSegment?'目前已有尚未下班的工作時段，請先完成下班打卡。':'目前沒有進行中的上班時段，請先上班打卡。';status($('punchGuardStatus'),msg,'error');return;}if(type==='上班'&&seq.completed>0&&!seq.openSegment){const next=seq.completed+1;const ok=window.confirm(`今天第 ${seq.completed} 段已完成。\n只有確定再次回場工作，才建立第 ${next} 段上班。\n\n確定要「再次上班」嗎？`);if(!ok){status($('punchGuardStatus'),'已取消再次上班；正常一天一段不需要再打卡。','');return;}}const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
@@ -468,14 +432,42 @@
     try{let p;try{p=await getPosition({enableHighAccuracy:true,timeout:12000,maximumAge:0});}catch(_e){p=await getPosition({enableHighAccuracy:false,timeout:12000,maximumAge:0});}
       state.location={latitude:p.coords.latitude,longitude:p.coords.longitude,accuracyM:p.coords.accuracy};state.locationLabel=await reverseGeo(p.coords.latitude,p.coords.longitude);
       $('locationBox').innerHTML=`<b>${esc(state.locationLabel)}</b><span>${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}｜誤差約 ${Math.round(p.coords.accuracy||0)} 公尺</span>`;
-      setStep('gps','done');setStep('photo','active');$('locateBtn').hidden=true;await startCamera();status($('flowStatus'),'定位完成，請拍攝本人與現場背景。','ok');
+      setStep('gps','done');setStep('photo','active');$('locateBtn').hidden=true;const opened=await startCamera();if(opened)status($('flowStatus'),`定位完成｜相機已使用 ${state.cameraZoomLabel||'最廣'} 視角，請拍攝本人與現場背景。`,'ok');
     }catch(e){const text=e&&e.code===1?'定位權限被拒絕，請到瀏覽器網站權限允許「位置」。':e&&e.code===3?'定位逾時，請移到較容易收到 GPS 的位置再試。':'暫時無法取得位置，請確認手機定位已開啟。';status($('flowStatus'),text,'error');}
     finally{$('locateBtn').disabled=false;}
   }
+  function videoReadyPromise(v,timeoutMs=4500){
+    return new Promise((resolve,reject)=>{
+      if(v.readyState>=2&&v.videoWidth&&v.videoHeight){resolve();return;}
+      let done=false;const finish=(ok)=>{if(done)return;done=true;clearTimeout(tm);v.removeEventListener('loadedmetadata',check);v.removeEventListener('loadeddata',check);v.removeEventListener('canplay',check);v.removeEventListener('error',bad);ok?resolve():reject(new Error('相機影像沒有開始播放'));};
+      const check=()=>{if(v.readyState>=2&&v.videoWidth&&v.videoHeight)finish(true);};const bad=()=>finish(false);
+      v.addEventListener('loadedmetadata',check);v.addEventListener('loadeddata',check);v.addEventListener('canplay',check);v.addEventListener('error',bad);const tm=setTimeout(()=>finish(false),timeoutMs);
+    });
+  }
+  async function attachAndPlayCamera(stream){
+    const v=$('cameraVideo');v.autoplay=true;v.muted=true;v.playsInline=true;v.setAttribute('playsinline','');v.setAttribute('webkit-playsinline','');v.srcObject=stream;v.classList.toggle('mirror',state.facing==='user');v.hidden=false;
+    try{await v.play();}catch(_e){await new Promise(r=>setTimeout(r,120));try{await v.play();}catch(_e2){}}
+    await videoReadyPromise(v);
+    if(typeof v.requestVideoFrameCallback==='function')await new Promise((resolve,reject)=>{let done=false;const tm=setTimeout(()=>{if(!done){done=true;reject(new Error('相機第一個影像畫面逾時'));}},2500);v.requestVideoFrameCallback(()=>{if(!done){done=true;clearTimeout(tm);resolve();}});});
+    else await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    return v;
+  }
+  async function requestCameraStream(simple=false){
+    const video=simple?{facingMode:{ideal:state.facing}}:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600},resizeMode:{ideal:'none'}};
+    try{return await navigator.mediaDevices.getUserMedia({audio:false,video});}
+    catch(err){if(!simple)return navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing}}});throw err;}
+  }
   async function startCamera(){
     stopCamera();clearPhoto();if(!navigator.mediaDevices?.getUserMedia){status($('flowStatus'),'瀏覽器不支援即時相機。請使用 Safari 或 Chrome 並以 HTTPS 開啟。','error');return;}
-    try{state.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600}}});const v=$('cameraVideo');v.srcObject=state.stream;v.classList.toggle('mirror',state.facing==='user');v.hidden=false;$('photoCanvas').hidden=true;$('cameraWrap').hidden=false;$('cameraActions').hidden=false;await v.play();await forceOneXZoom();startCameraStamp();enterCameraFullscreen();status($('flowStatus'),'相機已全螢幕開啟｜鏡頭倍率 1X。請確認本人與現場背景後拍照。','ok');}
-    catch(_e){status($('flowStatus'),'無法開啟相機，請確認瀏覽器已允許相機權限。','error');}
+    const seq=++state.cameraStartSeq;$('cameraWrap').hidden=false;$('cameraActions').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;if($('cameraLoading'))$('cameraLoading').hidden=false;state.cameraZoomLabel='最廣';enterCameraFullscreen();status($('flowStatus'),'正在啟動相機，等待即時影像…');
+    let lastErr=null;
+    for(let attempt=0;attempt<2;attempt++){
+      try{
+        const stream=await requestCameraStream(attempt>0);if(seq!==state.cameraStartSeq){stream.getTracks().forEach(t=>t.stop());return;}
+        state.stream=stream;await attachAndPlayCamera(stream);await forceMinimumZoom();startCameraStamp();if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=false;status($('flowStatus'),`相機已全螢幕開啟｜使用 ${state.cameraZoomLabel||'最廣'} 視角。請確認本人與現場背景後拍照。`,'ok');return true;
+      }catch(e){lastErr=e;stopCamera();if(attempt===0){$('cameraWrap').hidden=false;enterCameraFullscreen();status($('flowStatus'),'第一次啟動沒有取得影像，正在自動重新開啟相機…');await new Promise(r=>setTimeout(r,220));}}
+    }
+    if($('cameraLoading'))$('cameraLoading').hidden=true;exitCameraFullscreen();$('cameraWrap').hidden=true;const msg=String(lastErr?.message||'');status($('flowStatus'),/NotAllowed|Permission|denied/i.test(msg)?'相機權限被拒絕，請到瀏覽器網站權限允許「相機」後重試。':'相機沒有取得即時影像。請關閉其他正在使用相機的 App，回到本頁再試一次。','error');return false;
   }
   async function switchCamera(){state.facing=state.facing==='user'?'environment':'user';await startCamera();}
   function wrapText(ctx,text,maxWidth){const chars=Array.from(String(text||'')),lines=[];let line='';chars.forEach(ch=>{const test=line+ch;if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=ch;}else line=test;});if(line)lines.push(line);return lines.slice(0,3);}
@@ -621,8 +613,6 @@
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
-  $('biometricLoginBtn').addEventListener('click',biometricQuickLogin);$('gestureLoginBtn').addEventListener('click',gestureQuickLogin);$('employeeId').addEventListener('input',refreshQuickLoginButtons);if($('enableBiometricBtn'))$('enableBiometricBtn').addEventListener('click',enableBiometric);if($('enableGestureBtn'))$('enableGestureBtn').addEventListener('click',enableGesture);if($('refreshSecurityDevicesBtn'))$('refreshSecurityDevicesBtn').addEventListener('click',loadSecurityDevices);if($('gestureCancelBtn'))$('gestureCancelBtn').addEventListener('click',closeGesture);
-  const gestureBoard=$('gestureBoard');if(gestureBoard){gestureBoard.addEventListener('pointerdown',e=>{gestureDrawing=true;gestureNodes=[];gestureBoard.setPointerCapture?.(e.pointerId);const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.gesture-dot');addGestureNode(el);e.preventDefault();});gestureBoard.addEventListener('pointermove',e=>{if(!gestureDrawing)return;const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.gesture-dot');if(el&&gestureBoard.contains(el))addGestureNode(el);e.preventDefault();});gestureBoard.addEventListener('pointerup',e=>{finishGesture();try{gestureBoard.releasePointerCapture?.(e.pointerId);}catch(_e){}e.preventDefault();});gestureBoard.addEventListener('pointercancel',()=>{gestureDrawing=false;resetGestureBoard();});}
   $('loginBtn').addEventListener('click',login);$('employeeId').addEventListener('keydown',e=>{if(e.key==='Enter')$('employeePin').focus();});$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if($('cameraCancelBtn'))$('cameraCancelBtn').addEventListener('click',cancelFlow);$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitPreleaveBtn').addEventListener('click',submitPreleave);$('submitRosterChangeBtn').addEventListener('click',submitRosterChange);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('workPlanMonth').addEventListener('change',renderWorkPlan);$('workPlanPrevBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,-1);renderWorkPlan();});$('workPlanNextBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,1);renderWorkPlan();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});restoreEmployee();
