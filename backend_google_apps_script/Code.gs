@@ -1,5 +1,5 @@
 /**
- * W430 FIX366 CLEAN｜王泰山畜牧場員工自助中心｜班表＋各部門重大工作項目表
+ * W431 FIX367 CLEAN｜王泰山畜牧場員工自助中心｜班表＋各部門重大工作項目表
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W430_FIX366_CLEAN';
+const BRIDGE_VERSION = 'W431_FIX367_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -322,7 +322,7 @@ function syncPortalWorkPlan_(rawJson) {
   const now=isoNow_(),values=[],monthCounts={},tooLarge=[];
   monthList.forEach(function(month){
     const monthRows=rows.filter(function(r){return String((r&&(r.date||r.d))||'').slice(0,7)===month;});
-    const payload={version:String(plan.version||'W430_WORK_PLAN_V1'),generatedAt:String(plan.generatedAt||now),timezone:String(plan.timezone||TAIPEI_TZ),month:month,departments:Array.isArray(plan.departments)?plan.departments:[],rows:monthRows,sourceMode:String(plan.sourceMode||''),planningReady:plan.planningReady!==false,note:String(plan.note||'')};
+    const payload={version:String(plan.version||'W431_WORK_PLAN_V1'),generatedAt:String(plan.generatedAt||now),timezone:String(plan.timezone||TAIPEI_TZ),month:month,departments:Array.isArray(plan.departments)?plan.departments:[],rows:monthRows,sourceMode:String(plan.sourceMode||''),planningReady:plan.planningReady!==false,note:String(plan.note||'')};
     const text=JSON.stringify(payload);
     if(text.length>48000){tooLarge.push(month);return;}
     values.push([month,text,now]);monthCounts[month]=monthRows.length;
@@ -336,7 +336,7 @@ function syncPortalWorkPlan_(rawJson) {
 function portalWorkPlan_() {
   const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS);
   const last=sheet.getLastRow();
-  if(last<2)return {version:'W430_WORK_PLAN_V1',generatedAt:'',timezone:TAIPEI_TZ,months:[],departments:[],rows:[],sourceMode:'尚未同步',planningReady:false,note:'主系統尚未同步批次月曆重大工作事項。'};
+  if(last<2)return {version:'W431_WORK_PLAN_V1',generatedAt:'',timezone:TAIPEI_TZ,months:[],departments:[],rows:[],sourceMode:'尚未同步',planningReady:false,note:'主系統尚未同步批次月曆重大工作事項。'};
   const values=sheet.getRange(2,1,last-1,3).getValues(),rows=[],monthMeta=[],depMap={};let generatedAt='',sourceMode='',note='',planningReady=false;
   values.forEach(function(row){
     let p={};try{p=JSON.parse(String(row[1]||'{}'));}catch(_e){p={};}
@@ -347,7 +347,7 @@ function portalWorkPlan_() {
     if(p.generatedAt)generatedAt=String(p.generatedAt);if(p.sourceMode)sourceMode=String(p.sourceMode);if(p.note)note=String(p.note);if(p.planningReady!==false&&items.length)planningReady=true;
   });
   rows.sort(function(a,b){return String((a&&(a.date||a.d))||'').localeCompare(String((b&&(b.date||b.d))||''));});
-  return {version:'W430_WORK_PLAN_V1',generatedAt:generatedAt,timezone:TAIPEI_TZ,months:monthMeta.sort(function(a,b){return a.month.localeCompare(b.month);}),departments:Object.keys(depMap).map(function(k){return depMap[k];}),rows:rows,sourceMode:sourceMode,planningReady:planningReady,note:note};
+  return {version:'W431_WORK_PLAN_V1',generatedAt:generatedAt,timezone:TAIPEI_TZ,months:monthMeta.sort(function(a,b){return a.month.localeCompare(b.month);}),departments:Object.keys(depMap).map(function(k){return depMap[k];}),rows:rows,sourceMode:sourceMode,planningReady:planningReady,note:note};
 }
 
 function portalSnapshot_(employeeId) {

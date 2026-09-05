@@ -1,6 +1,6 @@
-# 王泰山畜牧場｜GitHub 員工自助中心 W430 FIX366 CLEAN
+# 王泰山畜牧場｜GitHub 員工自助中心 W431 FIX367 CLEAN
 
-目前唯一正式版本：`W430_FIX366_CLEAN`  
+目前唯一正式版本：`W431_FIX367_CLEAN`  
 正式 Apps Script `/exec`：`https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec`
 
 - `config.js` 是重新載入時的唯一正式橋接來源。
@@ -8,7 +8,7 @@
 - 員工編號英文不分大小寫；6 位 PIN 精確比對。
 - 相機使用全螢幕取景並在瀏覽器支援時要求 1X。
 
-## FIX366｜員工班表＋休假調整＋各部門重大工作項目表
+## FIX367｜員工班表＋休假調整＋各部門重大工作項目表
 - 「我的班表」可提出「休假日期調整申請」：同月份休假日與工作日交換，主管核准前正式班表不變。
 - 主管核准後才更新正式班表並同步回手機；若班表在申請後已改動，主系統會阻止過期申請核准。
 - 「我的班表」只顯示主系統正式發布的工作月曆；管理者可在主系統排班輪休表按「發布本月班表到員工端」。
