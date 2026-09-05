@@ -1,12 +1,12 @@
 (function(){
   'use strict';
-  // Current formal employee portal bridge configuration.
+  // W424 FIX360 CLEAN | Current formal employee portal bridge configuration.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
   const CFG=window.WTS_ATTENDANCE_CONFIG||{};
   const $=id=>document.getElementById(id);
-  const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',payslip:null};
+  const state={employee:null,token:sessionStorage.getItem('wts_att_session')||'',type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',payslip:null,cameraZoomLabel:'1X'};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -81,7 +81,7 @@
     if(state.busy)return;const id=$('employeeId').value.trim();const pin=$('employeePin').value.trim();
     if(!id||!pin){status($('loginStatus'),'請輸入員工編號與打卡 PIN。','error');return;}
     state.busy=true;$('loginBtn').disabled=true;status($('loginStatus'),'正在驗證員工身分…');
-    try{const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;sessionStorage.setItem('wts_att_session',state.token);sessionStorage.setItem('wts_att_employee',JSON.stringify(state.employee));localStorage.setItem('wts_att_employee_id',id);$('employeePin').value='';showPunch();}
+    try{const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;sessionStorage.setItem('wts_att_session',state.token);sessionStorage.setItem('wts_att_employee',JSON.stringify(state.employee));localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();}
     catch(e){status($('loginStatus'),e.message,'error');}
     finally{state.busy=false;$('loginBtn').disabled=false;}
   }
@@ -91,6 +91,7 @@
     const v=map[view]?view:'home';state.portalView=v;
     Object.entries(map).forEach(([k,id])=>{const el=$(id);if(el)el.hidden=k!==v;});
     document.querySelectorAll('[data-portal-nav]').forEach(b=>b.classList.toggle('active',b.dataset.portalNav===v));
+    if(v==='punch')updatePunchActionState();
     if(v==='requests')renderRequestForms();
     if(v==='schedule')renderSchedule();
     if(v==='tasks')renderTasks();
@@ -99,9 +100,78 @@
     scrollTo({top:0,behavior:'smooth'});
   }
   function portalDate(){return twParts().date;}
+  function punchTimeMinutes(v){
+    const m=/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(v||''));
+    if(!m)return null;const h=Number(m[1]),n=Number(m[2]),sec=Number(m[3]||0);if(h<0||h>23||n<0||n>59||sec<0||sec>59)return null;return h*60+n+sec/60;
+  }
+  function durationText(minutes){
+    const n=Math.max(0,Math.round(Number(minutes)||0));const h=Math.floor(n/60),m=n%60;return h?`${h} 小時${m?` ${m} 分`:''}`:`${m} 分`;
+  }
+  function rowEventsForSegments(row){
+    const ev=Array.isArray(row?.events)?row.events.filter(x=>x&&typeof x==='object').slice():[];
+    if(!ev.length&&row){
+      const d=String(row.date||'');const i=String(row.in||'').trim(),o=String(row.out||'').trim();
+      if(i&&i!=='—')ev.push({type:'上班',date:d,time:i,dateTime:`${d}T${i}`});
+      if(o&&o!=='—')ev.push({type:'下班',date:d,time:o,dateTime:`${d}T${o}`});
+    }
+    return ev;
+  }
+  function attendanceSegments(events){
+    const sorted=(Array.isArray(events)?events:[]).filter(x=>x&&['上班','下班'].includes(String(x.type||''))).slice().sort((a,b)=>String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||'')));
+    const segments=[];let open=null;const orphan=[];
+    sorted.forEach(ev=>{
+      const t=String(ev.type||'');
+      if(t==='上班'){
+        if(open){orphan.push(ev);return;}
+        open={index:segments.length+1,in:ev,out:null,open:true,minutes:0};
+      }else if(t==='下班'){
+        if(!open){orphan.push(ev);return;}
+        const a=punchTimeMinutes(open.in?.time),b=punchTimeMinutes(ev.time);let mins=0;if(a!==null&&b!==null){let end=b;if(end<a)end+=1440;mins=Math.max(0,end-a);}
+        open.out=ev;open.open=false;open.minutes=mins;segments.push(open);open=null;
+      }
+    });
+    const all=open?segments.concat([open]):segments.slice();
+    return {segments:all,completed:segments.length,openSegment:open,lastEvent:sorted[sorted.length-1]||null,nextType:open?'下班':'上班',totalMinutes:segments.reduce((n,x)=>n+Number(x.minutes||0),0),orphanEvents:orphan};
+  }
+  function currentEmployeeId(){return String(state.employee?.id||state.employee?.employeeId||'').trim();}
+  function localTodayPunchEvents(){
+    const d=portalDate(),id=currentEmployeeId(),name=String(state.employee?.name||state.employee?.employeeName||'');
+    return localRecords().filter(r=>String(r.date||'')===d&&(r.employeeId?String(r.employeeId)===id:(!name||String(r.employeeName||'')===name))).map(r=>({recordId:r.recordId||'',type:r.type||'',date:r.date||d,time:r.time||'',dateTime:r.dateTime||`${r.date||d}T${r.time||''}`,locationLabel:r.locationLabel||'',source:'本機今日紀錄'}));
+  }
+  function todayPunchEventsMerged(){
+    const d=portalDate(),row=(state.portal?.attendanceRecent||[]).find(x=>String(x.date||'')===d);const all=rowEventsForSegments(row).concat(localTodayPunchEvents());const seen=new Set();
+    return all.filter(x=>{const k=String(x.recordId||'')||`${x.type}|${x.dateTime||x.date+'T'+x.time}`;if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||'')));
+  }
+  function updatePunchActionState(){
+    const info=attendanceSegments(todayPunchEventsMerged()),inBtn=$('punchInBtn'),outBtn=$('punchOutBtn'),card=$('punchStateCard');
+    if(!inBtn||!outBtn)return info;
+    inBtn.classList.remove('is-next');outBtn.classList.remove('is-next');card?.classList.remove('open','multi');
+    if(info.openSegment){
+      const n=info.openSegment.index;inBtn.disabled=true;outBtn.disabled=false;outBtn.classList.add('is-next');
+      if($('punchOutEyebrow'))$('punchOutEyebrow').textContent=`第 ${n} 段`;if($('punchOutLabel'))$('punchOutLabel').textContent='下班打卡';
+      if($('punchInEyebrow'))$('punchInEyebrow').textContent='上班';if($('punchInLabel'))$('punchInLabel').textContent='目前已上班';
+      if($('punchStateTitle'))$('punchStateTitle').textContent=`第 ${n} 段工作中｜${info.openSegment.in?.time||''}`;
+      if($('punchStateHint'))$('punchStateHint').textContent='目前有尚未結束的工作時段，下一筆應為下班打卡。';card?.classList.add('open');
+      if($('todaySegmentBadge'))$('todaySegmentBadge').textContent=`今日 ${n} 段｜進行中`;
+    }else{
+      inBtn.disabled=false;outBtn.disabled=true;inBtn.classList.add('is-next');
+      const next=info.completed+1;if($('punchOutEyebrow'))$('punchOutEyebrow').textContent='下班';if($('punchOutLabel'))$('punchOutLabel').textContent='尚未上班';
+      if(info.completed===0){
+        if($('punchInEyebrow'))$('punchInEyebrow').textContent='上班';if($('punchInLabel'))$('punchInLabel').textContent='上班打卡';
+        if($('punchStateTitle'))$('punchStateTitle').textContent='今天尚未上班';if($('punchStateHint'))$('punchStateHint').textContent='正常情況一天一段，請先按「上班打卡」。';
+        if($('todaySegmentBadge'))$('todaySegmentBadge').textContent='今日 0 段';
+      }else{
+        if($('punchInEyebrow'))$('punchInEyebrow').textContent=`第 ${next} 段｜特殊`;if($('punchInLabel'))$('punchInLabel').textContent='再次上班（特殊）';
+        if($('punchStateTitle'))$('punchStateTitle').textContent=info.completed===1?'今天正常第 1 段已完成':`今天已完成 ${info.completed} 段`;
+        if($('punchStateHint'))$('punchStateHint').textContent=`正常情況今天已可結束；只有稍後又回場工作時，才按「再次上班」建立第 ${next} 段。`;card?.classList.add('multi');
+        if($('todaySegmentBadge'))$('todaySegmentBadge').textContent=`今日 ${info.completed} 段｜已完成`;
+      }
+    }
+    return info;
+  }
   function fmtNum(v,d=1){const n=Number(v);return Number.isFinite(n)?n.toFixed(d).replace(/\.0$/,''):'—';}
   function statusClass(v){const s=String(v||'');return /核准|成立|已排定|完成/.test(s)?'status-approved':/退回|駁回|失敗|取消/.test(s)?'status-rejected':'status-pending';}
-  function requestKindName(k,p={}){return k==='leave'?(p.leaveName||p.leaveTypeCode||'請假'):k==='punch_correction'?'補卡申請':k==='overtime'?'加班申請':k==='work_completion'?'工作完成回報':k||'申請';}
+  function requestKindName(k,p={}){return k==='preleave'?(p.preScheduleType||p.requestType||'預排休假'):k==='leave'?(p.leaveName||p.leaveTypeCode||'請假'):k==='punch_correction'?'補卡申請':k==='overtime'?'加班申請':k==='work_completion'?'工作完成回報':k||'申請';}
   async function loadPortalData(){
     if(!state.token||state.portalBusy)return;state.portalBusy=true;
     if($('portalStatusBadge'))$('portalStatusBadge').textContent='同步中';
@@ -116,9 +186,13 @@
   }
   function renderPortalData(){
     const p=state.portal||{},profile=p.profile||{},leave=p.leave||{},annual=leave.annualLeave||{},summary=p.summary||{};
-    const today=portalDate(),todayRow=(p.attendanceRecent||[]).find(x=>String(x.date||'')===today),events=todayRow?.events||[];
-    const inEvt=events.find(x=>x.type==='上班'),outEvt=events.find(x=>x.type==='下班');
-    if($('homePunchStatus'))$('homePunchStatus').textContent=inEvt?(outEvt?`已完成 ${outEvt.time||''}`:`已上班 ${inEvt.time||''}`):'尚未上班';
+    const today=portalDate(),todayRow=(p.attendanceRecent||[]).find(x=>String(x.date||'')===today),events=rowEventsForSegments(todayRow),todaySeg=attendanceSegments(events);
+    if($('homePunchStatus')){
+      if(todaySeg.openSegment)$('homePunchStatus').textContent=`第 ${todaySeg.openSegment.index} 段工作中 ${todaySeg.openSegment.in?.time||''}`;
+      else if(todaySeg.completed>1)$('homePunchStatus').textContent=`已完成 ${todaySeg.completed} 段 ${todaySeg.segments[todaySeg.completed-1]?.out?.time||''}`;
+      else if(todaySeg.completed===1)$('homePunchStatus').textContent=`已完成 ${todaySeg.segments[0]?.out?.time||''}`;
+      else $('homePunchStatus').textContent='尚未上班';
+    }
     if($('homePendingRequests'))$('homePendingRequests').textContent=String((p.requests||[]).filter(x=>!(/核准|成立|已排定|退回|駁回|取消|同步失敗/.test(String(x.status||'')))).length)+' 筆';
     if($('homeAnnualLeave'))$('homeAnnualLeave').textContent=annual.remainingDays===null||annual.remainingDays===undefined?'—':fmtNum(annual.remainingDays)+' 日';
     const todaySchedule=(p.schedule?.rows||[]).find(x=>String(x.date||'')===today);
@@ -127,25 +201,38 @@
     if($('homeWorkTasks'))$('homeWorkTasks').textContent=String(openTasks)+' 項';
     const payMonths=p.payroll?.availableMonths||[];if($('homePayslipMonths'))$('homePayslipMonths').textContent=payMonths.length?String(payMonths.length)+' 個月':'尚無';
     if($('homeAttendanceDays'))$('homeAttendanceDays').textContent=String(summary.attendanceDays??(p.attendanceRecent||[]).length)+' 日';
-    renderAttendance();renderRequests();renderProfile();renderLeaveOptions();renderSchedule();renderTasks();renderPayrollAvailability();
+    renderAttendance();renderRequests();renderProfile();renderLeaveOptions();renderSchedule();renderTasks();renderPayrollAvailability();updatePunchActionState();
     const home=(p.requests||[]).slice(0,4);$('homeRequestList').innerHTML=home.length?home.map(requestCard).join(''):'<p class="muted">尚無申請。</p>';
   }
-  function renderAttendance(){const rows=state.portal?.attendanceRecent||[];const el=$('attendanceList');if(!el)return;el.innerHTML=rows.length?rows.map(r=>{const ev=(r.events||[]).map(x=>`<span class="attendance-event">${esc(x.type||'打卡')} ${esc(x.time||'')}</span>`).join('');return `<div class="attendance-day"><div class="attendance-day-head"><b>${esc(r.date||'')}</b><span>${esc(r.status||'')}</span></div><div class="attendance-events">${ev||'<span class="muted">無明細</span>'}</div></div>`}).join(''):'<p class="muted">目前沒有主系統同步的近期出勤紀錄。</p>';}
+  function renderAttendance(){
+    const rows=state.portal?.attendanceRecent||[],el=$('attendanceList');if(!el)return;
+    el.innerHTML=rows.length?rows.map(r=>{
+      const info=attendanceSegments(rowEventsForSegments(r));
+      const segHtml=info.segments.map(seg=>`<div class="attendance-segment ${seg.open?'open':''}"><span class="attendance-segment-no">第 ${seg.index} 段</span><b class="attendance-segment-times">${esc(seg.in?.time||'—')} → ${esc(seg.out?.time||'尚未下班')}</b><span class="attendance-segment-duration">${seg.open?'進行中':durationText(seg.minutes)}</span></div>`).join('');
+      const statusText=info.openSegment?`第 ${info.openSegment.index} 段工作中`:(info.completed>1?`已完成 ${info.completed} 段`:(info.completed===1?'已完成':String(r.status||'')));
+      const total=info.totalMinutes?`當日已完成工時 ${durationText(info.totalMinutes)}${info.openSegment?'（另有進行中時段）':''}`:'';
+      return `<div class="attendance-day"><div class="attendance-day-head"><b>${esc(r.date||'')}</b><span>${esc(statusText)}</span></div><div class="attendance-segments">${segHtml||'<span class="muted">無明細</span>'}</div>${total?`<div class="attendance-day-total">${esc(total)}</div>`:''}</div>`;
+    }).join(''):'<p class="muted">目前沒有近期出勤紀錄。</p>';
+  }
   function requestCard(r){const p=(r.payload&&typeof r.payload==='object')?r.payload:r;const kind=r.requestKind||p.requestKind||p.kind||'';return `<div class="record ${statusClass(r.status)}"><b>${esc(requestKindName(kind,p))}<span class="request-status-pill">${esc(r.status||p.status||'待處理')}</span></b><span>${esc(r.date||p.date||p.startDate||'')}｜${esc(p.reason||p.note||'未填備註')}${(r.reviewNote||p.reviewNote)?'<br>主管：'+esc(r.reviewNote||p.reviewNote):''}</span></div>`;}
   function renderRequests(){const rows=state.portal?.requests||[];const el=$('requestHistory');if(el)el.innerHTML=rows.length?rows.map(requestCard).join(''):'<p class="muted">尚無申請紀錄。</p>';}
   function renderProfile(){const p=state.portal?.profile||{};const grid=$('profileGrid');if(grid){const fields=[['姓名',p.name],['員工編號',p.employeeId],['部門',p.department],['職務',p.position],['到職日',p.hireDate],['手機',p.mobile],['通訊地址',p.address],['住家電話',p.homePhone],['緊急聯絡人',p.emergencyContact],['緊急聯絡電話',p.emergencyPhone],['家庭狀況',p.familyStatus]];grid.innerHTML=fields.map(x=>`<div class="profile-item"><span>${esc(x[0])}</span><b>${esc(x[1]||'未填')}</b></div>`).join('');}
     const leave=state.portal?.leave||{},balances=leave.balances||{},annual=leave.annualLeave||{},g=$('leaveSummaryGrid');if(g)g.innerHTML=[['特別休假',annual.remainingDays===undefined?'—':fmtNum(annual.remainingDays)+' 日可用'],['事假共用',balances.personal_total?.remainingDays===undefined?'—':fmtNum(balances.personal_total.remainingDays)+' 日'],['普通病假',balances.sick_nonhospital?.usedDays===undefined?'—':fmtNum(balances.sick_nonhospital.usedDays)+' 日已用'],['家庭照顧假',balances.family_care_leave?.remainingDays===undefined?'—':fmtNum(balances.family_care_leave.remainingDays)+' 日可用']].map(x=>`<div class="portal-summary"><small>${esc(x[0])}</small><b>${esc(x[1])}</b><span>主系統試算</span></div>`).join('');}
   function renderLeaveOptions(){const select=$('leaveType');if(!select)return;const rules=state.portal?.leave?.rules||[];const old=select.value;select.innerHTML=rules.length?rules.map(r=>`<option value="${esc(r.code)}">${esc(r.name||r.code)}</option>`).join(''):'<option value="annual_leave">特別休假</option><option value="personal_leave">事假</option><option value="sick_nonhospital">普通病假</option>';if(old&&[...select.options].some(o=>o.value===old))select.value=old;renderLeaveRule();}
   function currentLeaveRule(){return (state.portal?.leave?.rules||[]).find(x=>String(x.code||'')===String($('leaveType')?.value||''))||null;}
-  function renderLeaveRule(){const r=currentLeaveRule(),unit=$('leaveUnit'),endWrap=$('leaveEndWrap'),qtyWrap=$('leaveQuantityWrap'),extra=$('leaveExtraFields'),hint=$('leaveBalanceHint');if(!unit)return;const units=(r?.allowedUnits||['day']);const labels=r?.unitLabels||{day:'日',half_day:'半日',hour:'小時',calendar_range:'連續曆日',fixed_calendar_days:'法定連續曆日'};unit.innerHTML=units.map(u=>`<option value="${esc(u)}">${esc(labels[u]||u)}</option>`).join('');unit.value=r?.defaultUnit&&units.includes(r.defaultUnit)?r.defaultUnit:units[0];const b=state.portal?.leave?.balances?.[r?.code]||{};if(hint)hint.textContent=r?`${r.name||''}｜剩餘 ${b.remainingDays===null||b.remainingDays===undefined?'依個案確認':fmtNum(b.remainingDays)+' 日'}｜${r.salaryTreatment||''}`:'假別規則待主系統同步';if(extra)extra.innerHTML=r?.relationshipRequired?'<label>親屬關係<select id="leaveRelationship"><option>父母</option><option>配偶</option><option>子女</option><option>祖父母</option><option>兄弟姊妹</option><option>其他</option></select></label>':String(r?.code||'').startsWith('parental_leave')?'<label>子女出生日期<input id="leaveChildBirth" type="date"></label>':'';toggleLeaveUnit();}
+  function renderLeaveRule(){const r=currentLeaveRule(),unit=$('leaveUnit'),endWrap=$('leaveEndWrap'),qtyWrap=$('leaveQuantityWrap'),extra=$('leaveExtraFields'),hint=$('leaveBalanceHint');if(!unit)return;const units=(r?.allowedUnits||['day']);const labels=r?.unitLabels||{day:'日',half_day:'半日',hour:'小時',calendar_range:'連續曆日',fixed_calendar_days:'法定連續曆日'};unit.innerHTML=units.map(u=>`<option value="${esc(u)}">${esc(labels[u]||u)}</option>`).join('');unit.value=r?.defaultUnit&&units.includes(r.defaultUnit)?r.defaultUnit:units[0];const b=state.portal?.leave?.balances?.[r?.code]||{};if(hint)hint.textContent=r?`${r.name||''}｜剩餘 ${b.remainingDays===null||b.remainingDays===undefined?'依個案確認':fmtNum(b.remainingDays)+' 日'}｜${r.salaryTreatment||''}`:'假別規則待主系統同步';if(extra){const code=String(r?.code||'');if(r?.relationshipRequired)extra.innerHTML='<label>親屬關係<select id="leaveRelationship"><option>父母</option><option>配偶</option><option>子女</option><option>祖父母</option><option>兄弟姊妹</option><option>其他</option></select></label>';else if(code.startsWith('parental_leave'))extra.innerHTML='<label>子女出生日期<input id="leaveChildBirth" type="date"></label>'+(code==='parental_leave_long'?'<label>育嬰留停期間保險處理<select id="leaveInsuranceChoice"><option value="">請選擇</option><option value="續保（依規定辦理）">續保（依規定辦理）</option><option value="不續保／另行投保（由人事確認）">不續保／另行投保（由人事確認）</option><option value="尚未決定（請人事聯絡確認）">尚未決定（請人事聯絡確認）</option></select></label>':'');else extra.innerHTML='';}toggleLeaveUnit();}
   function toggleLeaveUnit(){const u=$('leaveUnit')?.value||'day';if($('leaveEndWrap'))$('leaveEndWrap').hidden=!['calendar_range'].includes(u);if($('leaveQuantityWrap'))$('leaveQuantityWrap').hidden=['calendar_range','fixed_calendar_days'].includes(u);}
-  function renderRequestForms(){const raw=document.querySelector('.request-kind.active')?.dataset.requestKind||'leave';const kind=raw==='punch_correction'?'correction':raw;['leave','correction','overtime'].forEach(k=>{const id=k==='leave'?'leaveRequestForm':k==='correction'?'correctionRequestForm':'overtimeRequestForm';$(id).hidden=k!==kind;});}
+  function renderRequestForms(){const raw=document.querySelector('.request-kind.active')?.dataset.requestKind||'leave';const kind=raw==='punch_correction'?'correction':raw;['leave','preleave','correction','overtime'].forEach(k=>{const id=k==='leave'?'leaveRequestForm':k==='preleave'?'preleaveRequestForm':k==='correction'?'correctionRequestForm':'overtimeRequestForm';$(id).hidden=k!==kind;});}
   function chooseRequestKind(kind){document.querySelectorAll('.request-kind').forEach(b=>b.classList.toggle('active',b.dataset.requestKind===kind));renderRequestForms();}
   function corrToggle(){const t=$('corrType')?.value||'上班';if($('corrInWrap'))$('corrInWrap').hidden=t==='下班';if($('corrOutWrap'))$('corrOutWrap').hidden=t==='上班';}
   function validDate(v){return /^\d{4}-\d{2}-\d{2}$/.test(String(v||''));}
   function timeMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));if(!m)return null;const h=Number(m[1]),n=Number(m[2]);return h>=0&&h<24&&n>=0&&n<60?h*60+n:null;}
   function requestValidationError(payload){
     const kind=String(payload?.requestKind||'');
+    if(kind==='preleave'){
+      if(!validDate(payload.date))return '請選擇有效的預排休假日期。';
+      if(!['預排例假日','預排休息日'].includes(String(payload.preScheduleType||payload.requestType||'')))return '請選擇預排例假日或預排休息日。';
+    }
     if(kind==='leave'){
       if(!validDate(payload.startDate||payload.date))return '請選擇有效的請假開始日期。';
       if(payload.unit==='calendar_range'){
@@ -155,6 +242,8 @@
         const q=Number(payload.quantity);if(!Number.isFinite(q)||q<=0||q>365)return '請假數量必須大於 0，且不可超過 365。';
       }
       if(!String(payload.leaveTypeCode||'').trim())return '請選擇假別。';
+      if(['parental_leave_daily','parental_leave_long'].includes(String(payload.leaveTypeCode))&&!validDate(payload.childBirthDate))return '育嬰留職停薪請填寫子女出生日期。';
+      if(String(payload.leaveTypeCode)==='parental_leave_long'&&!String(payload.insuranceChoice||'').trim())return '長期育嬰留職停薪請選擇保險處理方式。';
     }
     if(kind==='punch_correction'){
       if(!validDate(payload.date))return '請選擇有效的補卡日期。';
@@ -181,10 +270,11 @@
     return '';
   }
   async function submitPortalRequest(payload){const err=requestValidationError(payload);if(err){status($('requestStatus'),err,'error');return;}if(state.busy)return;state.busy=true;status($('requestStatus'),'正在送出申請…');try{const d=await postBridge('portalRequest',{sessionToken:state.token,payloadJson:JSON.stringify(payload)},15000);status($('requestStatus'),d.message||'申請已送出','ok');await loadPortalData();}catch(e){status($('requestStatus'),e.message||String(e),'error');}finally{state.busy=false;}}
-  function submitLeave(){const r=currentLeaveRule(),u=$('leaveUnit')?.value||r?.defaultUnit||'day';const payload={requestKind:'leave',leaveTypeCode:$('leaveType')?.value||'annual_leave',leaveName:r?.name||$('leaveType')?.selectedOptions?.[0]?.textContent||'請假',date:$('leaveStartDate').value,startDate:$('leaveStartDate').value,endDate:$('leaveEndDate').value,unit:u,quantity:$('leaveQuantity').value,reason:$('leaveReason').value,documentStatus:$('leaveDocumentStatus').value};const rel=$('leaveRelationship');if(rel)payload.relationship=rel.value;const cb=$('leaveChildBirth');if(cb)payload.childBirthDate=cb.value;if(u==='fixed_calendar_days')delete payload.quantity;if(u!=='calendar_range')delete payload.endDate;submitPortalRequest(payload);}
+  function submitLeave(){const r=currentLeaveRule(),u=$('leaveUnit')?.value||r?.defaultUnit||'day';const payload={requestKind:'leave',leaveTypeCode:$('leaveType')?.value||'annual_leave',leaveName:r?.name||$('leaveType')?.selectedOptions?.[0]?.textContent||'請假',date:$('leaveStartDate').value,startDate:$('leaveStartDate').value,endDate:$('leaveEndDate').value,unit:u,quantity:$('leaveQuantity').value,reason:$('leaveReason').value,documentStatus:$('leaveDocumentStatus').value};const rel=$('leaveRelationship');if(rel)payload.relationship=rel.value;const cb=$('leaveChildBirth');if(cb)payload.childBirthDate=cb.value;const ins=$('leaveInsuranceChoice');if(ins)payload.insuranceChoice=ins.value;if(u==='fixed_calendar_days')delete payload.quantity;if(u!=='calendar_range')delete payload.endDate;submitPortalRequest(payload);}
+  function submitPreleave(){submitPortalRequest({requestKind:'preleave',date:$('preleaveDate').value,requestType:$('preleaveType').value,preScheduleType:$('preleaveType').value,reason:$('preleaveReason').value});}
   function submitCorrection(){const t=$('corrType').value;submitPortalRequest({requestKind:'punch_correction',date:$('corrDate').value,missingPunchType:t,requestedInTime:t==='下班'?'':$('corrIn').value,requestedOutTime:t==='上班'?'':$('corrOut').value,reason:$('corrReason').value});}
   function submitOvertime(){submitPortalRequest({requestKind:'overtime',date:$('otDate').value,startTime:$('otStart').value,endTime:$('otEnd').value,reason:$('otReason').value});}
-  function initPortalForms(){const d=portalDate();['leaveStartDate','leaveEndDate','corrDate','otDate'].forEach(id=>{if($(id)&&!$(id).value)$(id).value=d;});corrToggle();}
+  function initPortalForms(){const d=portalDate();['leaveStartDate','leaveEndDate','preleaveDate','corrDate','otDate'].forEach(id=>{if($(id)&&!$(id).value)$(id).value=d;});corrToggle();}
 
   function monthShift(value,delta){
     const m=/^(\d{4})-(\d{2})$/.exec(String(value||''));const base=m?new Date(Number(m[1]),Number(m[2])-1,1):new Date();base.setMonth(base.getMonth()+delta);return `${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}`;
@@ -232,10 +322,13 @@
 
   function updateCameraStamp(){const now=twParts();if($('cameraStampFarm'))$('cameraStampFarm').textContent=CFG.farmName||'王泰山畜牧場';if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';if($('cameraStampTime'))$('cameraStampTime').textContent=`台灣時間 ${now.date} ${now.time}`;}
   function startCameraStamp(){updateCameraStamp();if(state.cameraStampTimer)clearInterval(state.cameraStampTimer);state.cameraStampTimer=setInterval(updateCameraStamp,1000);if($('cameraStamp'))$('cameraStamp').hidden=false;}
-  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}}
+  function enterCameraFullscreen(){const wrap=$('cameraWrap');if(wrap){wrap.classList.add('camera-fullscreen');document.body.classList.add('camera-live');}if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=state.cameraZoomLabel||'1X';}
+  function exitCameraFullscreen(){const wrap=$('cameraWrap');if(wrap)wrap.classList.remove('camera-fullscreen');document.body.classList.remove('camera-live');}
+  async function forceOneXZoom(){const track=state.stream?.getVideoTracks?.()[0];state.cameraZoomLabel='1X';if(!track)return;try{const caps=track.getCapabilities?.()||{};if(caps.zoom!==undefined){let target=1;if(typeof caps.zoom==='object'){const min=Number(caps.zoom.min),max=Number(caps.zoom.max);if(Number.isFinite(min))target=Math.max(min,target);if(Number.isFinite(max))target=Math.min(max,target);}await track.applyConstraints({advanced:[{zoom:target}]});state.cameraZoomLabel='1X';}}catch(_e){state.cameraZoomLabel='1X';}if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=state.cameraZoomLabel;}
+  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}exitCameraFullscreen();}
   function clearPhoto(){if(state.photoUrl)URL.revokeObjectURL(state.photoUrl);state.photoUrl='';state.photoBlob=null;state.photoTakenAt='';state.lineShared=false;state.lineShareMethod='';state.shareBusy=false;state.lastShareAttemptAt=0;closeConfirm('photoReviewOverlay');closeConfirm('photoConfirmOverlay');closeConfirm('lineResultOverlay');$('photoPreview').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;$('faceGuide').hidden=false;if($('cameraStamp'))$('cameraStamp').hidden=false;$('photoActions').hidden=true;if($('photoReviewBox'))$('photoReviewBox').hidden=true;$('lineConfirm').hidden=true;$('submitPunchBtn').hidden=true;$('downloadPhotoLink').hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;}
   function cancelFlow(){stopCamera();clearPhoto();state.type='';state.location=null;state.locationLabel='';$('flowPanel').hidden=true;status($('flowStatus'),'');}
-  function beginFlow(type){const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+  function beginFlow(type){const seq=updatePunchActionState();if(type!==seq.nextType){const msg=seq.openSegment?'目前已有尚未下班的工作時段，請先完成下班打卡。':'目前沒有進行中的上班時段，請先上班打卡。';status($('punchGuardStatus'),msg,'error');return;}if(type==='上班'&&seq.completed>0&&!seq.openSegment){const next=seq.completed+1;const ok=window.confirm(`今天第 ${seq.completed} 段已完成。\n只有確定再次回場工作，才建立第 ${next} 段上班。\n\n確定要「再次上班」嗎？`);if(!ok){status($('punchGuardStatus'),'已取消再次上班；正常一天一段不需要再打卡。','');return;}}const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
   function geoDistanceM(lat1,lon1,lat2,lon2){const R=6371000,r=Math.PI/180,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;const a=Math.sin(dLat/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
   async function reverseGeo(lat,lng){
     const fallback=`緯度 ${lat.toFixed(6)}、經度 ${lng.toFixed(6)}`;
@@ -257,7 +350,7 @@
   }
   async function startCamera(){
     stopCamera();clearPhoto();if(!navigator.mediaDevices?.getUserMedia){status($('flowStatus'),'瀏覽器不支援即時相機。請使用 Safari 或 Chrome 並以 HTTPS 開啟。','error');return;}
-    try{state.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600}}});const v=$('cameraVideo');v.srcObject=state.stream;v.classList.toggle('mirror',state.facing==='user');v.hidden=false;$('photoCanvas').hidden=true;$('cameraWrap').hidden=false;$('cameraActions').hidden=false;await v.play();startCameraStamp();}
+    try{state.stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600}}});const v=$('cameraVideo');v.srcObject=state.stream;v.classList.toggle('mirror',state.facing==='user');v.hidden=false;$('photoCanvas').hidden=true;$('cameraWrap').hidden=false;$('cameraActions').hidden=false;await v.play();await forceOneXZoom();startCameraStamp();enterCameraFullscreen();status($('flowStatus'),'相機已全螢幕開啟｜鏡頭倍率 1X。請確認本人與現場背景後拍照。','ok');}
     catch(_e){status($('flowStatus'),'無法開啟相機，請確認瀏覽器已允許相機權限。','error');}
   }
   async function switchCamera(){state.facing=state.facing==='user'?'environment':'user';await startCamera();}
@@ -357,12 +450,36 @@
   }
   function openLineShare(){state.lineShareMethod='line-url-manual';const text=lineShareText()+`\n（請在 LINE 群組內附上剛才的自拍照片）`;window.location.href='https://line.me/R/share?text='+encodeURIComponent(text);}
   function localRecords(){try{return JSON.parse(localStorage.getItem('wts_att_local_records')||'[]')||[]}catch(_e){return[]}}
-  function saveLocal(r){const a=localRecords();a.unshift(r);localStorage.setItem('wts_att_local_records',JSON.stringify(a.slice(0,60)));renderToday();}
-  function renderToday(){const d=twParts().date,rows=localRecords().filter(r=>r.date===d);$('todayRecords').innerHTML=rows.length?rows.map(r=>`<div class="record"><b>${esc(r.type)}｜${esc(r.time)}｜${esc(r.employeeName||'')}</b><span>${esc(r.locationLabel||'未取得地名')}<br>LINE：${r.lineShared?'已分享':'未確認'}｜來源：雲端橋接</span></div>`).join(''):'<p class="muted">今天尚無本機打卡紀錄。</p>';}
+  function saveLocal(r){const a=localRecords();a.unshift(r);localStorage.setItem('wts_att_local_records',JSON.stringify(a.slice(0,80)));renderToday();}
+  function renderToday(){
+    const events=localTodayPunchEvents(),info=attendanceSegments(events),el=$('todayRecords');if(!el)return;
+    el.innerHTML=info.segments.length?info.segments.map(seg=>{const inLoc=seg.in?.locationLabel||'未取得地名',outLoc=seg.out?.locationLabel||'';return `<div class="local-segment ${seg.open?'open':''}"><b>第 ${seg.index} 段｜${esc(seg.in?.time||'—')} → ${esc(seg.out?.time||'尚未下班')}</b><span>${seg.open?'目前工作中':`本段 ${durationText(seg.minutes)}`}<br>上班：${esc(inLoc)}${outLoc?`<br>下班：${esc(outLoc)}`:''}</span></div>`;}).join(''):'<p class="muted">今天尚無本機打卡紀錄。</p>';
+    updatePunchActionState();
+  }
+  function mergePunchIntoPortal(record){
+    if(!record||!record.date||!record.type)return;
+    if(!state.portal||typeof state.portal!=='object')state.portal={};
+    if(!Array.isArray(state.portal.attendanceRecent))state.portal.attendanceRecent=[];
+    let row=state.portal.attendanceRecent.find(x=>String(x.date||'')===String(record.date||''));
+    if(!row){row={date:String(record.date||''),in:'',out:'',status:'雲端即時打卡',events:[]};state.portal.attendanceRecent.push(row);}
+    if(!Array.isArray(row.events))row.events=[];
+    const rid=String(record.recordId||''),sig=`${record.type}|${record.dateTime||record.date+'T'+record.time}`;
+    const exists=row.events.some(x=>{const xid=String(x.recordId||''),xsig=`${x.type}|${x.dateTime||x.date+'T'+x.time}`;return (rid&&xid===rid)||(sig&&xsig===sig);});
+    if(!exists)row.events.push({recordId:rid,type:String(record.type||''),date:String(record.date||''),time:String(record.time||''),dateTime:String(record.dateTime||''),locationLabel:String(record.locationLabel||''),source:'Apps Script 即時打卡'});
+    row.events.sort((a,b)=>String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||'')));
+    const ins=row.events.filter(x=>x.type==='上班'&&x.time).map(x=>String(x.time));
+    const outs=row.events.filter(x=>x.type==='下班'&&x.time).map(x=>String(x.time));
+    if(ins.length)row.in=ins.sort()[0];if(outs.length)row.out=outs.sort().slice(-1)[0];
+    const segInfo=attendanceSegments(row.events);row.segmentCount=segInfo.segments.length;row.openSegment=!!segInfo.openSegment;if(!row.status||['雲端即時打卡','已完成','已上班'].includes(row.status))row.status=segInfo.openSegment?`第 ${segInfo.openSegment.index} 段工作中`:(segInfo.completed>1?`已完成 ${segInfo.completed} 段`:(segInfo.completed===1?'已完成':'尚未上班'));
+    state.portal.attendanceRecent.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+    state.portal.attendanceRecent=state.portal.attendanceRecent.slice(0,31);
+    state.portal.summary=state.portal.summary||{};state.portal.summary.attendanceDays=state.portal.attendanceRecent.length;
+    renderPortalData();
+  }
   async function submitPunch(){
-    if(state.busy)return;const guard=clientPunchGuard(state.type);if(guard.blocked){status($('flowStatus'),guard.message,'error');return;}if(CFG.requireGps!==false&&!state.location){status($('flowStatus'),'尚未取得 GPS，不能送出。','error');return;}if(CFG.requireLineShare!==false&&!state.lineShared){status($('flowStatus'),'請先確認自拍照片已傳到 LINE 群組。','error');return;}
+    if(state.busy)return;const seq=updatePunchActionState();if(state.type!==seq.nextType){status($('flowStatus'),seq.openSegment?'目前已有尚未下班的工作時段，請先下班。':'目前應先上班打卡。','error');return;}const guard=clientPunchGuard(state.type);if(guard.blocked){status($('flowStatus'),guard.message,'error');return;}if(CFG.requireGps!==false&&!state.location){status($('flowStatus'),'尚未取得 GPS，不能送出。','error');return;}if(CFG.requireLineShare!==false&&!state.lineShared){status($('flowStatus'),'請先確認自拍照片已傳到 LINE 群組。','error');return;}
     state.busy=true;$('submitPunchBtn').disabled=true;const recordId=`GH-${state.employee?.id||'EMP'}-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;status($('flowStatus'),'正在回傳打卡資料，以雲端台灣時間作為正式時間…');
-    try{const d=await postBridge('punch',{sessionToken:state.token,recordId,type:state.type,latitude:state.location?.latitude,longitude:state.location?.longitude,accuracyM:state.location?.accuracyM,locationLabel:state.locationLabel,photoConfirmed:'1',photoTakenAtClient:state.photoTakenAt,lineShared:'1',lineShareMethod:state.lineShareMethod||'manual-confirm'});const r=d.record||{};if(d.duplicate)localStorage.setItem(cooldownKey('any'),String(Date.now()));else markClientPunch(state.type);saveLocal({recordId:r.recordId||recordId,type:r.type||state.type,date:r.date||twParts().date,time:r.time||twParts().time,employeeName:state.employee?.name||'',locationLabel:r.locationLabel||state.locationLabel,lineShared:true});setStep('submit','done');status($('flowStatus'),d.duplicate?`短時間內已有打卡紀錄，系統未重複新增｜${r.date||''} ${r.time||''}`:`${r.type||state.type}打卡成功｜${r.date||''} ${r.time||''}（台灣伺服器時間；主系統不含照片）`,'ok');$('submitPunchBtn').hidden=true;setTimeout(()=>cancelFlow(),1700);}
+    try{const d=await postBridge('punch',{sessionToken:state.token,recordId,type:state.type,latitude:state.location?.latitude,longitude:state.location?.longitude,accuracyM:state.location?.accuracyM,locationLabel:state.locationLabel,photoConfirmed:'1',photoTakenAtClient:state.photoTakenAt,lineShared:'1',lineShareMethod:state.lineShareMethod||'manual-confirm'});const r=d.record||{};if(d.duplicate)localStorage.setItem(cooldownKey('any'),String(Date.now()));else markClientPunch(state.type);saveLocal({recordId:r.recordId||recordId,employeeId:currentEmployeeId(),type:r.type||state.type,date:r.date||twParts().date,time:r.time||twParts().time,dateTime:r.dateTime||'',employeeName:state.employee?.name||'',locationLabel:r.locationLabel||state.locationLabel,lineShared:true});mergePunchIntoPortal({recordId:r.recordId||recordId,type:r.type||state.type,date:r.date||twParts().date,time:r.time||twParts().time,dateTime:r.dateTime||'',locationLabel:r.locationLabel||state.locationLabel});loadPortalData();setStep('submit','done');status($('flowStatus'),d.duplicate?`短時間內已有打卡紀錄，系統未重複新增｜${r.date||''} ${r.time||''}`:`${r.type||state.type}打卡成功｜${r.date||''} ${r.time||''}（台灣伺服器時間；主系統不含照片）`,'ok');$('submitPunchBtn').hidden=true;setTimeout(()=>cancelFlow(),1700);}
     catch(e){status($('flowStatus'),e.message,'error');}
     finally{state.busy=false;$('submitPunchBtn').disabled=false;}
   }
@@ -380,7 +497,7 @@
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
-  $('loginBtn').addEventListener('click',login);$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
-  document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
+  $('loginBtn').addEventListener('click',login);$('employeeId').addEventListener('keydown',e=>{if(e.key==='Enter')$('employeePin').focus();});$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if($('cameraCancelBtn'))$('cameraCancelBtn').addEventListener('click',cancelFlow);$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
+  document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitPreleaveBtn').addEventListener('click',submitPreleave);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});restoreEmployee();
 })();

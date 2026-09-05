@@ -1,5 +1,5 @@
 /**
- * W421 FIX357R2 CLEAN｜王泰山畜牧場員工自助中心｜新正式部署＋橋接診斷修正版
+ * W424 FIX360 CLEAN｜王泰山畜牧場員工自助中心｜一天預設一段、特殊情況多段上下班
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W421_FIX357R2_CLEAN';
+const BRIDGE_VERSION = 'W424_FIX360_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -227,6 +227,15 @@ function managerSyncKeyOk_(value) {
   return String(value || '') === String(PropertiesService.getScriptProperties().getProperty('SYNC_KEY') || '');
 }
 
+function employeeIdKey_(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function employeeIdEqual_(a, b) {
+  const ak = employeeIdKey_(a), bk = employeeIdKey_(b);
+  return !!ak && ak === bk;
+}
+
 function sessionEmployee_(token) {
   const key = String(token || '').trim();
   if (!key) return null;
@@ -236,7 +245,7 @@ function sessionEmployee_(token) {
   let session;
   try { session = JSON.parse(cached); } catch (_e) { return null; }
   // Every session use rechecks that the employee still exists and is active.
-  const current = employees_().find(function(x){return String(x.id||'')===String(session.id||'') && x.active!==false;});
+  const current = employees_().find(function(x){return employeeIdEqual_(x.id, session.id) && x.active!==false;});
   if (!current) { cache.remove('session:' + key); return null; }
   return {id:current.id,name:current.name||current.id,department:current.department||''};
 }
@@ -245,7 +254,7 @@ function login_(p) {
   const employeeId = String(p.employeeId || '').trim();
   const pin = String(p.pin || '').trim();
   if (!employeeId || !pin) return {ok:false, message:'請輸入員工編號與 PIN'};
-  const employee = employees_().find(function(x){return String(x.id||'')===employeeId && x.active!==false;});
+  const employee = employees_().find(function(x){return employeeIdEqual_(x.id, employeeId) && x.active!==false;});
   if (!employee || String(employee.pin || '') !== pin) return {ok:false, message:'員工編號或 PIN 不正確'};
   const token = Utilities.getUuid() + Utilities.getUuid();
   CacheService.getScriptCache().put('session:' + token, JSON.stringify({id:employee.id,name:employee.name||employee.id,department:employee.department||''}), SESSION_SECONDS);
@@ -282,10 +291,12 @@ function syncPortalData_(rawJson) {
 function portalSnapshot_(employeeId) {
   const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_SHEET,PORTAL_HEADERS);
   const last=sheet.getLastRow();if(last<2)return null;
-  const finder=sheet.getRange(2,1,last-1,1).createTextFinder(String(employeeId||'')).matchEntireCell(true).findNext();
-  if(!finder)return null;
-  const payload=String(sheet.getRange(finder.getRow(),2).getValue()||'');
-  try{return JSON.parse(payload);}catch(_e){return null;}
+  const values=sheet.getRange(2,1,last-1,2).getValues();
+  for(let i=values.length-1;i>=0;i--){
+    if(!employeeIdEqual_(values[i][0], employeeId))continue;
+    try{return JSON.parse(String(values[i][1]||''));}catch(_e){return null;}
+  }
+  return null;
 }
 
 function portalRequestRows_() {
@@ -297,7 +308,78 @@ function portalRequestRows_() {
 }
 
 function portalRequestsForEmployee_(employeeId) {
-  return portalRequestRows_().filter(function(x){return String(x.employeeId||'')===String(employeeId||'');}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80).map(function(x){return {requestId:String(x.requestId||''),requestKind:String(x.requestKind||''),date:String(x.date||''),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:String(x.createdAt||''),updatedAt:String(x.updatedAt||'')};});
+  return portalRequestRows_().filter(function(x){return employeeIdEqual_(x.employeeId, employeeId);}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80).map(function(x){return {requestId:String(x.requestId||''),requestKind:String(x.requestKind||''),date:String(x.date||''),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:String(x.createdAt||''),updatedAt:String(x.updatedAt||'')};});
+}
+
+function punchTimeMinutes_(value) {
+  const m=/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(value||''));
+  if(!m)return null;
+  const h=Number(m[1]),n=Number(m[2]),sec=Number(m[3]||0);
+  if(h<0||h>23||n<0||n>59||sec<0||sec>59)return null;
+  return h*60+n+sec/60;
+}
+
+function attendanceSegmentInfo_(events) {
+  const sorted=(Array.isArray(events)?events:[]).filter(function(x){return x&&['上班','下班'].indexOf(String(x.type||''))>=0;}).slice().sort(function(a,b){return String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||''));});
+  const segments=[];let open=null;const orphan=[];
+  sorted.forEach(function(ev){
+    const type=String(ev.type||'');
+    if(type==='上班'){
+      if(open){orphan.push(ev);return;}
+      open={index:segments.length+1,in:ev,out:null,open:true,minutes:0};
+    }else if(type==='下班'){
+      if(!open){orphan.push(ev);return;}
+      const a=punchTimeMinutes_(open.in&&open.in.time),b=punchTimeMinutes_(ev.time);let mins=0;
+      if(a!==null&&b!==null){let end=b;if(end<a)end+=1440;mins=Math.max(0,end-a);}
+      open.out=ev;open.open=false;open.minutes=mins;segments.push(open);open=null;
+    }
+  });
+  return {segments:open?segments.concat([open]):segments.slice(),completed:segments.length,openSegment:open,nextType:open?'下班':'上班',totalMinutes:segments.reduce(function(n,x){return n+Number(x.minutes||0);},0),orphanEvents:orphan};
+}
+
+function todayEmployeePunchEvents_(sheet, employeeId, today) {
+  const last=sheet.getLastRow();if(last<2)return [];
+  const target=String(today||Utilities.formatDate(new Date(),TAIPEI_TZ,'yyyy-MM-dd'));
+  const start=Math.max(2,last-4999),values=sheet.getRange(start,1,last-start+1,HEADERS.length).getValues(),headers=HEADERS.slice(),events=[];
+  for(let i=values.length-1;i>=0;i--){
+    const row=values[i],obj={};headers.forEach(function(h,j){obj[h]=row[j];});
+    const date=String(obj.date||'').slice(0,10);if(date&&date<target)break;
+    if(date!==target||!employeeIdEqual_(obj.employeeId,employeeId))continue;
+    events.push({recordId:String(obj.recordId||''),employeeId:String(obj.employeeId||''),employeeName:String(obj.employeeName||''),type:String(obj.type||''),date:target,time:String(obj.time||''),dateTime:String(obj.dateTime||obj.serverCreatedAt||''),latitude:numberOrBlank_(obj.latitude),longitude:numberOrBlank_(obj.longitude),accuracyM:numberOrBlank_(obj.accuracyM),locationLabel:String(obj.locationLabel||''),photoConfirmed:String(obj.photoConfirmed).toLowerCase()==='true'||obj.photoConfirmed===true,lineShared:String(obj.lineShared).toLowerCase()==='true'||obj.lineShared===true,source:'Apps Script 即時打卡'});
+  }
+  events.sort(function(a,b){return String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||''));});
+  return events;
+}
+
+function cloudTodayAttendance_(employeeId) {
+  const sheet=ensureSheet_(spreadsheet_());
+  const today=Utilities.formatDate(new Date(),TAIPEI_TZ,'yyyy-MM-dd');
+  const events=todayEmployeePunchEvents_(sheet,employeeId,today);if(!events.length)return null;
+  const info=attendanceSegmentInfo_(events);
+  const inTimes=events.filter(function(x){return x.type==='上班'&&x.time;}).map(function(x){return x.time;}).sort();
+  const outTimes=events.filter(function(x){return x.type==='下班'&&x.time;}).map(function(x){return x.time;}).sort();
+  const status=info.openSegment?('第 '+info.openSegment.index+' 段工作中'):(info.completed>1?('已完成 '+info.completed+' 段'):(info.completed===1?'已完成':'尚未上班'));
+  return {date:today,in:inTimes.length?inTimes[0]:'',out:outTimes.length?outTimes[outTimes.length-1]:'',status:status,events:events,segmentCount:info.segments.length,completedSegments:info.completed,openSegment:!!info.openSegment,workMinutes:info.totalMinutes,live:true};
+}
+
+function mergeCloudTodayAttendance_(snapshot, employeeId) {
+  const cloud=cloudTodayAttendance_(employeeId);if(!cloud)return snapshot;
+  const rows=Array.isArray(snapshot.attendanceRecent)?snapshot.attendanceRecent.slice():[];
+  let row=rows.find(function(x){return String(x.date||'')===cloud.date;});
+  if(!row){row={date:cloud.date,in:'',out:'',status:'',events:[]};rows.unshift(row);}
+  if(!Array.isArray(row.events))row.events=[];
+  const seenIds={},seenSig={};row.events.forEach(function(x){const rid=String(x.recordId||''),sig=[x.type,x.dateTime||x.time].join('|');if(rid)seenIds[rid]=true;if(sig)seenSig[sig]=true;});
+  cloud.events.forEach(function(x){const rid=String(x.recordId||''),sig=[x.type,x.dateTime||x.time].join('|');if((rid&&seenIds[rid])||(sig&&seenSig[sig]))return;row.events.push(x);if(rid)seenIds[rid]=true;if(sig)seenSig[sig]=true;});
+  row.events.sort(function(a,b){return String(a.dateTime||a.time||'').localeCompare(String(b.dateTime||b.time||''));});
+  const inTimes=row.events.filter(function(x){return x.type==='上班'&&x.time;}).map(function(x){return String(x.time);}).sort();
+  const outTimes=row.events.filter(function(x){return x.type==='下班'&&x.time;}).map(function(x){return String(x.time);}).sort();
+  if(inTimes.length)row.in=inTimes[0];if(outTimes.length)row.out=outTimes[outTimes.length-1];
+  const info=attendanceSegmentInfo_(row.events);row.segmentCount=info.segments.length;row.completedSegments=info.completed;row.openSegment=!!info.openSegment;row.workMinutes=info.totalMinutes;
+  if(!row.status||row.status==='雲端即時打卡'||row.status==='已上班'||row.status==='已完成'||/^已完成 \d+ 段$/.test(String(row.status||''))||/^第 \d+ 段工作中$/.test(String(row.status||'')))row.status=info.openSegment?('第 '+info.openSegment.index+' 段工作中'):(info.completed>1?('已完成 '+info.completed+' 段'):(info.completed===1?'已完成':'尚未上班'));
+  row.live=true;
+  rows.sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
+  snapshot.attendanceRecent=rows.slice(0,31);snapshot.summary=snapshot.summary||{};snapshot.summary.attendanceDays=snapshot.attendanceRecent.length;snapshot.liveAttendanceMergedAt=isoNow_();
+  return snapshot;
 }
 
 function portalData_(p) {
@@ -307,6 +389,7 @@ function portalData_(p) {
   const merged={},base=Array.isArray(snapshot.requests)?snapshot.requests:[],cloud=portalRequestsForEmployee_(employee.id);
   base.concat(cloud).forEach(function(x){if(!x||typeof x!=='object')return;const id=String(x.requestId||'');if(!id)return;merged[id]=Object.assign({},merged[id]||{},x);});
   snapshot.requests=Object.keys(merged).map(function(k){return merged[k];}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80);
+  mergeCloudTodayAttendance_(snapshot, employee.id);
   return {ok:true,version:BRIDGE_VERSION,employee:{id:employee.id,name:employee.name||employee.id,department:employee.department||''},portal:snapshot,serverNow:isoNow_()};
 }
 
@@ -315,11 +398,16 @@ function timeMinutes_(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));if(!m)r
 function validatePortalPayload_(payload){
   const kind=String(payload&&payload.requestKind||'').trim();
   const date=String(payload&& (payload.date||payload.startDate) ||'').trim();
-  if(['leave','punch_correction','overtime','work_completion'].indexOf(kind)<0)return '目前員工自助中心只接受請假、補卡、加班與工作完成回報';
+  if(['preleave','leave','punch_correction','overtime','work_completion'].indexOf(kind)<0)return '目前員工自助中心只接受預排休假、請假、補卡、加班與工作完成回報';
   if(!validDate_(date))return '請填寫有效日期';
+  if(kind==='preleave'){
+    if(['預排例假日','預排休息日'].indexOf(String(payload.preScheduleType||payload.requestType||''))<0)return '預排類型必須為預排例假日或預排休息日';
+  }
   if(kind==='leave'){
     const unit=String(payload.unit||'day');
     if(!String(payload.leaveTypeCode||'').trim())return '請選擇假別';
+    if(['parental_leave_daily','parental_leave_long'].indexOf(String(payload.leaveTypeCode||''))>=0&&!validDate_(payload.childBirthDate))return '育嬰留職停薪請填寫子女出生日期';
+    if(String(payload.leaveTypeCode||'')==='parental_leave_long'&&!String(payload.insuranceChoice||'').trim())return '長期育嬰留職停薪請選擇保險處理方式';
     if(unit==='calendar_range'){
       if(!validDate_(payload.endDate))return '請填寫有效的請假結束日期';
       if(String(payload.endDate)<String(payload.startDate||payload.date||''))return '請假結束日期不可早於開始日期';
@@ -414,7 +502,7 @@ function portalPayslip_(p) {
   const employee=sessionEmployee_(p.sessionToken);
   if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
   const pin=String(p.pin||'').trim();
-  const current=employees_().find(function(x){return String(x.id||'')===String(employee.id||'')&&x.active!==false;});
+  const current=employees_().find(function(x){return employeeIdEqual_(x.id, employee.id)&&x.active!==false;});
   const guardCache=CacheService.getScriptCache(),guardKey='paypin:'+String(employee.id||'')+':'+String(p.sessionToken||'').slice(0,24),failed=Number(guardCache.get(guardKey)||0);
   if(failed>=5)return {ok:false,message:'薪資查詢 PIN 連續錯誤次數過多，請 10 分鐘後再試或重新登入'};
   if(!current||!/^[0-9]{6}$/.test(pin)||String(current.pin||'')!==pin){guardCache.put(guardKey,String(failed+1),600);return {ok:false,message:'薪資查詢 PIN 不正確；請重新輸入本人 6 位 PIN'};}
@@ -424,7 +512,7 @@ function portalPayslip_(p) {
   const last=sheet.getLastRow();if(last<2)return {ok:false,message:'目前沒有已發布的正式薪資單'};
   const values=sheet.getRange(2,1,last-1,PORTAL_PAYSLIP_HEADERS.length).getValues();
   for(let i=values.length-1;i>=0;i--){
-    if(String(values[i][0]||'')!==String(employee.id||'')||String(values[i][1]||'')!==month)continue;
+    if(!employeeIdEqual_(values[i][0],employee.id)||String(values[i][1]||'')!==month)continue;
     let slip={};try{slip=JSON.parse(String(values[i][2]||'{}'));}catch(_e){return {ok:false,message:'薪資單資料格式錯誤，請通知主管重新同步'};}
     return {ok:true,employeeId:String(employee.id||''),month:month,payslip:slip,serverNow:isoNow_(),security:'本人有效 Session＋再次輸入 6 位 PIN'};
   }
@@ -455,6 +543,12 @@ function punch_(p) {
     if (recent) return {ok:true, duplicate:true, rateLimited:true, message:recent.message, record:recent.record};
 
     const date = Utilities.formatDate(now, TAIPEI_TZ, 'yyyy-MM-dd');
+    const todayEvents=todayEmployeePunchEvents_(sheet,String(employee.id||''),date),sequence=attendanceSegmentInfo_(todayEvents);
+    if(type!==sequence.nextType){
+      if(sequence.openSegment)return {ok:false,message:'目前第 '+sequence.openSegment.index+' 段已上班但尚未下班，請先完成下班打卡'};
+      return {ok:false,message:sequence.completed?'今天上一段已完成；若再次回場請先按「再次上班」，不能直接下班':'今天尚未上班，請先完成上班打卡'};
+    }
+    const segmentNo=sequence.openSegment?sequence.openSegment.index:(sequence.completed+1);
     const time = Utilities.formatDate(now, TAIPEI_TZ, 'HH:mm:ss');
     const dateTime = Utilities.formatDate(now, TAIPEI_TZ, "yyyy-MM-dd'T'HH:mm:ssXXX");
     const locationLabel = String(p.locationLabel || '').slice(0, 500);
@@ -474,10 +568,11 @@ function punch_(p) {
       photoTakenAtClient:String(p.photoTakenAtClient||''),
       lineShared:true,
       lineShareMethod:String(p.lineShareMethod||''),
-      serverCreatedAt:dateTime
+      serverCreatedAt:dateTime,
+      segmentNo:segmentNo
     };
     sheet.appendRow(HEADERS.map(function(h){return record[h] === undefined ? '' : record[h];}));
-    return {ok:true, duplicate:false, message:type+'打卡成功', record:record};
+    return {ok:true, duplicate:false, message:'第 '+segmentNo+' 段'+type+'打卡成功', segmentNo:segmentNo, record:record};
   } finally {
     lock.releaseLock();
   }
@@ -491,7 +586,7 @@ function findRecentPunch_(sheet, employeeId, type, now) {
   const values = sheet.getRange(start,1,last-start+1,HEADERS.length).getValues();
   for (let i=values.length-1;i>=0;i--) {
     const row=values[i], obj={};headers.forEach(function(h,j){obj[h]=row[j];});
-    if (String(obj.employeeId||'') !== employeeId) continue;
+    if (!employeeIdEqual_(obj.employeeId, employeeId)) continue;
     const stamp = String(obj.serverCreatedAt || obj.dateTime || '');
     const ms = Date.parse(stamp);
     if (!isFinite(ms)) continue;
@@ -549,10 +644,11 @@ function syncEmployees_(rawJson) {
     const x = rows[i] || {};
     const id = String(x.id || '').trim();
     const pin = String(x.pin || '').trim();
+    const idKey = employeeIdKey_(id);
     if (!id) return {ok:false, message:'第 '+(i+1)+' 筆缺少員工編號'};
-    if (seen[id]) return {ok:false, message:'員工編號重複：'+id};
+    if (seen[idKey]) return {ok:false, message:'員工編號重複（英文大小寫視為相同）：'+id};
     if (!/^\d{6}$/.test(pin)) return {ok:false, message:'員工 '+id+' 的 PIN 必須是 6 位數字'};
-    seen[id] = true;
+    seen[idKey] = true;
     cleaned.push({
       id:id,
       name:String(x.name || id).slice(0,100),

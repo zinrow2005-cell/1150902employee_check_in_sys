@@ -1,9 +1,25 @@
-# 王泰山畜牧場｜GitHub 員工自助中心 W421 FIX357R2 CLEAN
+# 王泰山畜牧場｜GitHub 員工自助中心 W424 FIX360 CLEAN
 
-目前唯一正式版本：`W421_FIX357R2_CLEAN`  
+目前唯一正式版本：`W424_FIX360_CLEAN`  
 正式 Apps Script `/exec`：`https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec`
 
 - `config.js` 是重新載入時的唯一正式橋接來源。
-- 瀏覽器既有的版本化 bridge localStorage 不得覆蓋 `config.js`。
-- Service Worker 啟用時會刪除其他舊 Cache Storage。
 - `SYNC_KEY` 與員工 PIN 不得寫入 GitHub。
+- 員工編號英文不分大小寫；6 位 PIN 精確比對。
+- 相機使用全螢幕取景並在瀏覽器支援時要求 1X。
+
+## FIX360｜員工自助資料與工作月曆
+- 「我的班表」只顯示主系統正式發布的工作月曆；管理者可在主系統排班輪休表按「發布本月班表到員工端」。
+- 員工可送出：預排休假、請假、補卡、加班、工作完成回報。
+- 長期育嬰留職停薪會要求保險處理方式；必要欄位由手機與 Apps Script 雙重驗證。
+- 申請先暫存在 Apps Script，等待單機主系統同步；主管處理結果會再回到員工端。
+- 核准的請假／預排休假會由主系統寫入工作月曆，重新發布班表不會覆蓋。
+
+## 出勤既有行為
+- 正常一天：`上班 → 下班`。
+- 完成第 1 段後，只有特殊回場工作才使用「再次上班（特殊）」建立第 2 段。
+- 手機端與 Apps Script 都會檢查上下班順序。
+- 「本機今日紀錄」與「我的出勤」會逐段顯示；今天雲端 Attendance 即時紀錄會與主系統快照去重合併。
+
+## 登入帳號說明
+GitHub 員工自助中心只使用「員工編號＋6 位 PIN」。主系統中另外看到的「登入帳號＋初始密碼」屬於本機／未來區網的選用員工入口，不影響本頁登入。
