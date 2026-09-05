@@ -1,6 +1,6 @@
-// W424 FIX360 CLEAN｜public client configuration only; never place SYNC_KEY or employee PIN here.
+// W427 FIX363 CLEAN｜public client configuration only; never place SYNC_KEY or employee PIN here.
 window.WTS_ATTENDANCE_CONFIG = {
-  version: 'W424_FIX360_CLEAN',
+  version: 'W427_FIX363_CLEAN',
   bridgeUrl: 'https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec',
   farmName: '王泰山畜牧場',
   requireGps: true,

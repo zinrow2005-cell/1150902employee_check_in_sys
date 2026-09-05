@@ -1,6 +1,6 @@
-# 王泰山畜牧場｜GitHub 員工自助中心 W424 FIX360 CLEAN
+# 王泰山畜牧場｜GitHub 員工自助中心 W427 FIX363 CLEAN
 
-目前唯一正式版本：`W424_FIX360_CLEAN`  
+目前唯一正式版本：`W427_FIX363_CLEAN`  
 正式 Apps Script `/exec`：`https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec`
 
 - `config.js` 是重新載入時的唯一正式橋接來源。
@@ -8,7 +8,7 @@
 - 員工編號英文不分大小寫；6 位 PIN 精確比對。
 - 相機使用全螢幕取景並在瀏覽器支援時要求 1X。
 
-## FIX360｜員工自助資料與工作月曆
+## FIX363｜員工自助資料與工作月曆
 - 「我的班表」只顯示主系統正式發布的工作月曆；管理者可在主系統排班輪休表按「發布本月班表到員工端」。
 - 員工可送出：預排休假、請假、補卡、加班、工作完成回報。
 - 長期育嬰留職停薪會要求保險處理方式；必要欄位由手機與 Apps Script 雙重驗證。

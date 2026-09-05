@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="員工自助中心">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=423359">
+  <link rel="stylesheet" href="style.css?v=427363">
   <title>王泰山畜牧場｜員工自助中心</title>
 </head>
 <body>
@@ -28,7 +28,7 @@
   </section>
 
   <section class="panel" id="loginPanel">
-    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W424 FIX360</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
+    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W427 FIX363</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
     <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。員工編號中的英文字母不分大小寫；PIN 不儲存在手機。</span></div>
     <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="例如 WTS999（英文大小寫皆可）"></label>
     <label>6 位 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="請輸入 PIN"></label>
@@ -102,5 +102,5 @@
 <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle"><div class="confirm-card"><span class="confirm-kicker">已選用照片</span><h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2><div class="confirm-summary" id="photoConfirmSummary"></div><p>按下確認後才會開啟手機分享面板。分享完成後只把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p><div class="status" id="photoConfirmStatus" aria-live="polite"></div><button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button><div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div></div></div>
 <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle"><div class="confirm-card"><span class="confirm-kicker">LINE 分享確認</span><h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2><p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p><button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button><div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div></div></div>
 <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="雲端橋接"></iframe>
-<script src="config.js?v=423359"></script><script src="app.js?v=423359"></script>
+<script src="config.js?v=427363"></script><script src="app.js?v=427363"></script>
 </body></html>

@@ -1,9 +1,9 @@
-# W424 FIX360 CLEAN 部署
+# W427 FIX363 CLEAN 部署
 
 1. GitHub repository 根目錄以本資料夾全部檔案覆蓋。
-2. 確認登入頁顯示「GitHub 員工自助端 W424 FIX360」。
+2. 確認登入頁顯示「GitHub 員工自助端 W427 FIX363」。
 3. Apps Script 用 `backend_google_apps_script/Code.gs` 完整更新同一個 Web App 部署。
-4. 「測試橋接」必須回傳 `W424_FIX360_CLEAN`。
+4. 「測試橋接」必須回傳 `W427_FIX363_CLEAN`。
 5. 回主系統確認 SYNC_KEY、啟用橋接並重新同步員工帳號＋自助資料。
 6. 在主系統「排班輪休表」完成一個月份後，按「發布本月班表到員工端」。
 7. 員工重新整理「我的班表」，確認已發布班表可見。

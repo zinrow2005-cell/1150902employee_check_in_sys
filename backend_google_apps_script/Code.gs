@@ -1,5 +1,5 @@
 /**
- * W424 FIX360 CLEAN｜王泰山畜牧場員工自助中心｜一天預設一段、特殊情況多段上下班
+ * W427 FIX363 CLEAN｜王泰山畜牧場員工自助中心｜部門＋批次月曆導向排班整合
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W424_FIX360_CLEAN';
+const BRIDGE_VERSION = 'W427_FIX363_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';

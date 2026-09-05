@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W424 FIX360 CLEAN | Current formal employee portal bridge configuration.
+  // W427 FIX363 CLEAN | Current formal employee portal bridge configuration.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
