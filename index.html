@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="員工自助中心">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=431367">
+  <link rel="stylesheet" href="style.css?v=433369">
   <title>王泰山畜牧場｜員工自助中心</title>
 </head>
 <body>
@@ -28,11 +28,15 @@
   </section>
 
   <section class="panel" id="loginPanel">
-    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W431 FIX367</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
-    <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。員工編號中的英文字母不分大小寫；PIN 不儲存在手機。</span></div>
+    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W433 FIX369</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
+    <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。員工編號中的英文字母不分大小寫；首次登入成功後，這台裝置可維持登入 15 天，不需再次輸入 PIN。薪資單仍會要求二次 PIN 驗證。</span></div>
     <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="例如 WTS999（英文大小寫皆可）"></label>
     <label>6 位 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="請輸入 PIN"></label>
-    <button class="primary" id="loginBtn" type="button">登入員工自助中心</button><div class="status" id="loginStatus" aria-live="polite"></div>
+    <button class="primary" id="loginBtn" type="button">使用 6 位 PIN 登入</button>
+    <div class="quick-login-divider"><span>已綁定這台裝置時，也可以快速登入</span></div>
+    <div class="quick-login-grid"><button class="biometric-login" id="biometricLoginBtn" type="button">🔐 Face ID／Touch ID／指紋登入</button><button class="gesture-login" id="gestureLoginBtn" type="button" hidden>⌁ 手勢登入</button></div>
+    <p class="quick-login-note" id="quickLoginNote">第一次使用新手機仍需員工編號＋6 位 PIN；登入後這台裝置可維持 15 天免 PIN。生物辨識資料由手機系統保管，伺服器只保存公開金鑰。</p>
+    <div class="status" id="loginStatus" aria-live="polite"></div>
   </section>
 
   <section id="punchPanel" hidden>
@@ -42,7 +46,7 @@
       <section class="panel portal-welcome"><div class="section-head"><div><h2>我的首頁</h2><p id="portalSyncText">正在讀取單機主系統同步的員工資料…</p></div><span class="badge" id="portalStatusBadge">同步中</span></div>
         <div class="portal-summary-grid"><div class="portal-summary"><small>今日打卡</small><b id="homePunchStatus">讀取中</b><span>正式時間以 Apps Script 為準</span></div><div class="portal-summary"><small>今日班表</small><b id="homeScheduleStatus">—</b><span>本人已發布工作月曆</span></div><div class="portal-summary"><small>待辦任務</small><b id="homeWorkTasks">—</b><span>本人已指派工作</span></div><div class="portal-summary"><small>待處理申請</small><b id="homePendingRequests">—</b><span>預排休假／請假／補卡／加班</span></div><div class="portal-summary"><small>特休可用</small><b id="homeAnnualLeave">—</b><span>主系統試算</span></div><div class="portal-summary"><small>正式薪資單</small><b id="homePayslipMonths">—</b><span>需再次輸入 PIN 查詢</span></div></div>
       </section>
-      <section class="panel"><div class="section-head"><div><h2>常用功能</h2><p>功能沿用原本主系統的員工自助端概念，改由 GitHub＋Apps Script 橋接。</p></div></div><div class="portal-actions"><button data-open-view="punch">📷 定位自拍打卡<small>上班／下班＋LINE</small></button><button data-open-view="schedule">📅 工作月曆／班表<small>查看個人已發布班表</small></button><button data-open-view="workplan">🗓️ 工作項目表<small>查看各部門重大工作事項</small></button><button data-open-view="tasks">📋 我的工作任務<small>查看指派與回報完成</small></button><button data-open-view="attendance">🕘 我的出勤<small>查看近期上下班紀錄</small></button><button data-open-view="requests">📝 請假與申請<small>預排休假／請假／補卡／加班</small></button><button data-open-view="payroll">💰 正式薪資單<small>再次輸入 PIN 安全查詢</small></button><button data-open-view="profile">👤 我的資料<small>只顯示本人可查看資料</small></button></div></section>
+      <section class="panel"><div class="section-head"><div><h2>常用功能</h2><p>功能沿用原本主系統的員工自助端概念，改由 GitHub＋Apps Script 橋接。</p></div></div><div class="portal-actions"><button data-open-view="punch">📷 定位自拍打卡<small>上班／下班＋LINE</small></button><button data-open-view="schedule">📅 工作月曆／班表<small>查看個人已發布班表</small></button><button data-open-view="workplan">🗓️ 工作項目表<small>查看各部門重大工作事項</small></button><button data-open-view="tasks">📋 我的工作任務<small>查看指派與回報完成</small></button><button data-open-view="attendance">🕘 我的出勤<small>查看近期上下班紀錄</small></button><button data-open-view="requests">📝 請假與申請<small>預排休假／請假／補卡／加班</small></button><button data-open-view="payroll">💰 正式薪資單<small>再次輸入 PIN 安全查詢</small></button><button data-open-view="profile">👤 我的資料<small>只顯示本人可查看資料</small></button><button data-open-view="security">🔐 登入安全<small>Face ID／指紋／手勢快速登入</small></button></div></section>
       <section class="panel"><h2>最新申請</h2><div id="homeRequestList" class="record-list"><p class="muted">尚無申請。</p></div></section>
     </section>
 
@@ -104,6 +108,17 @@
       <section class="panel"><div class="section-head"><div><h2>薪資與工作</h2><p>敏感薪資明細採二次 PIN 驗證；工作月曆與個人任務只顯示本人資料；工作項目表則提供全場重大工作提醒。</p></div></div><div class="portal-actions"><button data-open-view="schedule">📅 我的班表<small>工作月曆</small></button><button data-open-view="workplan">🗓️ 工作項目表<small>各部門重大工作</small></button><button data-open-view="tasks">📋 工作任務<small>完成回報</small></button><button data-open-view="payroll">💰 正式薪資單<small>二次 PIN 驗證</small></button></div></section>
     </section>
 
+    <section class="portal-view" id="portalSecurityView" hidden>
+      <section class="panel"><div class="section-head"><div><h2>登入安全</h2><p>PIN 是正式首次／備援登入。成功登入後本機可維持 15 天免 PIN；主動登出、PIN 變更、員工停用或裝置被撤銷時會立即失效。生物辨識快速登入使用 WebAuthn，Face ID／Touch ID／指紋資料不會傳到牧場系統。</p></div><span class="badge">15 天登入</span></div>
+        <div class="security-card biometric-card"><div><b>Face ID／Touch ID／指紋</b><span id="biometricSupportText">正在檢查此裝置支援狀態…</span></div><button class="primary" id="enableBiometricBtn" type="button">在這台裝置啟用</button></div>
+        <div class="security-card gesture-card"><div><b>手勢快速登入（選用）</b><span>安全性低於生物辨識；建議只在無 Face ID／指紋的裝置使用。手勢至少連 5 個不同圓點。</span></div><button class="ghost" id="enableGestureBtn" type="button">設定／更新手勢</button></div>
+        <div class="status" id="securityStatus" aria-live="polite"></div>
+      </section>
+      <section class="panel"><div class="section-head"><div><h2>我的快速登入裝置</h2><p>手機遺失或不再使用時，可立即撤銷。主管也能從單機主系統撤銷。</p></div><button class="ghost" id="refreshSecurityDevicesBtn" type="button">重新整理</button></div><div id="securityDeviceList" class="security-device-list"><p class="muted">尚未讀取裝置。</p></div></section>
+    </section>
+
+    <div class="gesture-overlay" id="gestureOverlay" hidden><div class="gesture-modal"><div class="section-head"><div><h2 id="gestureTitle">繪製手勢</h2><p id="gestureHint">請連續滑過至少 5 個不同圓點。</p></div><button class="ghost" id="gestureCancelBtn" type="button">取消</button></div><div class="gesture-board" id="gestureBoard"><svg class="gesture-lines" id="gestureLines" aria-hidden="true"></svg><span class="gesture-dot" data-node="0"><i></i></span><span class="gesture-dot" data-node="1"><i></i></span><span class="gesture-dot" data-node="2"><i></i></span><span class="gesture-dot" data-node="3"><i></i></span><span class="gesture-dot" data-node="4"><i></i></span><span class="gesture-dot" data-node="5"><i></i></span><span class="gesture-dot" data-node="6"><i></i></span><span class="gesture-dot" data-node="7"><i></i></span><span class="gesture-dot" data-node="8"><i></i></span></div><div class="gesture-count" id="gestureCount">尚未繪製</div></div></div>
+
     <nav class="portal-bottom-nav" aria-label="員工自助中心導覽"><button class="active" data-portal-nav="home"><span>⌂</span>首頁</button><button data-portal-nav="punch"><span>◎</span>打卡</button><button data-portal-nav="attendance"><span>◷</span>出勤</button><button data-portal-nav="requests"><span>✎</span>申請</button><button data-portal-nav="profile"><span>○</span>我的</button></nav>
   </section>
 </main>
@@ -112,5 +127,5 @@
 <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle"><div class="confirm-card"><span class="confirm-kicker">已選用照片</span><h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2><div class="confirm-summary" id="photoConfirmSummary"></div><p>按下確認後才會開啟手機分享面板。分享完成後只把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p><div class="status" id="photoConfirmStatus" aria-live="polite"></div><button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button><div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div></div></div>
 <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle"><div class="confirm-card"><span class="confirm-kicker">LINE 分享確認</span><h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2><p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p><button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button><div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div></div></div>
 <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="雲端橋接"></iframe>
-<script src="config.js?v=431367"></script><script src="app.js?v=431367"></script>
+<script src="config.js?v=433369"></script><script src="app.js?v=433369"></script>
 </body></html>
