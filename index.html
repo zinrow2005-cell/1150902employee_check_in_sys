@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="員工自助中心">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=443379">
+  <link rel="stylesheet" href="style.css?v=444380">
   <title>王泰山畜牧場｜員工自助中心</title>
 </head>
 <body>
@@ -28,7 +28,7 @@
   </section>
 
   <section class="panel" id="loginPanel">
-    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W443 FIX379</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
+    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W444 FIX380</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
     <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。員工編號中的英文字母不分大小寫；PIN 不儲存在手機。登入成功後，此裝置可維持 15 天免重新輸入 PIN，主動登出或帳號停用則立即失效。</span></div>
     <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="例如 WTS999（英文大小寫皆可）"></label>
     <label>6 位 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="請輸入 PIN"></label>
@@ -65,7 +65,7 @@
     </section>
 
     <section class="portal-view" id="portalScheduleView" hidden>
-      <section class="panel"><div class="section-head"><div><h2>工作月曆／我的班表</h2><p>只顯示單機主系統已保存／發布到本人工作月曆的資料，不顯示其他員工班表。</p></div><span class="badge">本人班表</span></div><div class="schedule-toolbar"><button class="ghost" id="schedulePrevBtn" type="button">上一月</button><input id="scheduleMonth" type="month"><button class="ghost" id="scheduleNextBtn" type="button">下一月</button></div><div class="schedule-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div><div id="scheduleCalendar" class="schedule-calendar"></div><div id="scheduleDayDetail" class="schedule-detail"><p class="muted">點選日期查看班別與備註。</p></div><div class="schedule-adjust-card" id="rosterChangeBox"><div class="section-head"><div><h3>申請調整休假日期</h3><p>班表發布後，如果希望把原本的例假／休息日移到同月份另一個工作日，可在這裡提出申請。主管核准前，正式班表不會改變。</p></div><span class="badge">需主管審核</span></div><div class="form-grid"><label>原休假日<select id="rosterChangeFrom"></select></label><label>希望改休日期<select id="rosterChangeTo"></select></label></div><div class="form-hint" id="rosterChangeHint"></div><label>調整原因<textarea id="rosterChangeReason" rows="2" placeholder="例如：家庭安排；請只填必要內容"></textarea></label><button class="primary" id="submitRosterChangeBtn" type="button">送出休假日期調整申請</button></div></section>
+      <section class="panel"><div class="section-head"><div><h2>工作月曆／我的班表</h2><p>只顯示單機主系統已保存／發布到本人工作月曆的資料，不顯示其他員工班表。</p></div><span class="badge">本人班表</span></div><div class="schedule-toolbar"><button class="ghost" id="schedulePrevBtn" type="button">上一月</button><input id="scheduleMonth" type="month"><button class="ghost" id="scheduleNextBtn" type="button">下一月</button></div><div class="schedule-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div><div id="scheduleCalendar" class="schedule-calendar"></div><div id="scheduleDayDetail" class="schedule-detail"><p class="muted">點選日期查看班別與備註。</p></div><div class="schedule-adjust-card" id="rosterChangeBox"><div class="section-head"><div><h3>申請調整休假日期</h3><p>班表發布後，如果希望把原本的例假／休息日移到同月份另一個工作日，可在這裡提出申請。主管核准前，正式班表不會改變。</p></div><span class="badge">需主管審核</span></div><div class="form-grid"><label>原休假日<select id="rosterChangeFrom"></select></label><label>希望改休日期<select id="rosterChangeTo"></select></label></div><div class="form-hint" id="rosterChangeHint"></div><label>調整原因<textarea id="rosterChangeReason" rows="2" placeholder="例如：家庭安排；請只填必要內容"></textarea></label><button class="primary" id="submitRosterChangeBtn" type="button">送出休假日期調整申請</button><div class="status roster-change-status" id="rosterChangeStatus" aria-live="polite"></div></div></section>
     </section>
 
     <section class="portal-view" id="portalWorkPlanView" hidden>
@@ -112,5 +112,5 @@
 <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle"><div class="confirm-card"><span class="confirm-kicker">已選用照片</span><h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2><div class="confirm-summary" id="photoConfirmSummary"></div><p>按下確認後才會開啟手機分享面板。分享完成後只把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p><div class="status" id="photoConfirmStatus" aria-live="polite"></div><button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button><div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div></div></div>
 <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle"><div class="confirm-card"><span class="confirm-kicker">LINE 分享確認</span><h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2><p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p><button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button><div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div></div></div>
 <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="雲端橋接"></iframe>
-<script src="config.js?v=443379"></script><script src="app.js?v=443379"></script>
+<script src="config.js?v=444380"></script><script src="app.js?v=444380"></script>
 </body></html>
