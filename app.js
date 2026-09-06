@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W432 FIX368R5 FINAL STAMP | final branded attendance photo layout.
+  // W433 FIX369 FINAL STAMP | final branded attendance photo layout.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -335,17 +335,33 @@
   function monthShift(value,delta){
     const m=/^(\d{4})-(\d{2})$/.exec(String(value||''));const base=m?new Date(Number(m[1]),Number(m[2])-1,1):new Date();base.setMonth(base.getMonth()+delta);return `${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}`;
   }
-  function scheduleDayLabel(row){if(!row)return '';return String(row.shiftName||row.dayType||row.status||'已排班');}
+  function scheduleDayLabel(row){
+    if(!row)return '';
+    const raw=String(row.dayType||row.status||'').trim();
+    if(/特別休假|特休/.test(raw))return '特別休假';
+    if(/請假/.test(raw))return raw||'請假';
+    if(/例假/.test(raw))return '例假';
+    if(/休息日/.test(raw))return '休息日';
+    if(/輪休/.test(raw))return '輪休';
+    return String(row.shiftName||row.dayType||row.status||'已排班');
+  }
+  function scheduleDayKind(row){const raw=String((row?.dayType||'')+' '+(row?.status||'')+' '+(row?.shiftName||''));if(/特別休假|特休|請假/.test(raw))return'leave';if(/例假|休息日|輪休/.test(raw))return'rest';return row?'work':'none';}
+  function scheduleDayMarker(kind,label){if(kind==='rest')return '<i class="schedule-day-marker rest">休</i>';if(kind==='leave')return '<i class="schedule-day-marker leave">假</i>';if(kind==='work')return '<i class="schedule-day-marker work">工</i>';return '';}
   function renderSchedule(){
     const input=$('scheduleMonth'),cal=$('scheduleCalendar'),detail=$('scheduleDayDetail');if(!input||!cal)return;
     const today=portalDate();if(!input.value)input.value=today.slice(0,7);const month=input.value;
     const rows=(state.portal?.schedule?.rows||[]).filter(x=>String(x.date||'').slice(0,7)===month);const byDate=new Map(rows.map(x=>[String(x.date||''),x]));
     const [y,m]=month.split('-').map(Number);if(!y||!m)return;const first=new Date(y,m-1,1),days=new Date(y,m,0).getDate(),cells=[];
     for(let i=0;i<first.getDay();i++)cells.push('<div class="schedule-day empty" aria-hidden="true"></div>');
-    for(let d=1;d<=days;d++){const ds=`${month}-${String(d).padStart(2,'0')}`,row=byDate.get(ds),type=String(row?.dayType||'').toLowerCase(),cls=/leave|請假/.test(type+String(row?.status||''))?'leave':/rest|例假|休息/.test(type+String(row?.status||''))?'rest':row?'work':'none';const selected=state.scheduleSelectedDate===ds?' selected':'';cells.push(`<button class="schedule-day ${cls}${selected}" type="button" data-schedule-date="${ds}"><b>${d}</b><span>${esc(scheduleDayLabel(row)||'—')}</span></button>`);}
+    for(let d=1;d<=days;d++){
+      const ds=`${month}-${String(d).padStart(2,'0')}`,row=byDate.get(ds),kind=scheduleDayKind(row),label=scheduleDayLabel(row)||'—',selected=state.scheduleSelectedDate===ds?' selected':'',isToday=ds===today?' today':'';
+      const start=row?.startTime||row?.start||'',end=row?.endTime||row?.end||'';
+      const sub=kind==='work'?(start||end?`${start||'—'}–${end||'—'}`:'工作日'):(kind==='rest'?'本日放假':kind==='leave'?'已核准休假':'尚未發布');
+      cells.push(`<button class="schedule-day ${kind}${selected}${isToday}" type="button" data-schedule-date="${ds}"><span class="schedule-day-head"><b>${d}</b>${scheduleDayMarker(kind,label)}</span><strong class="schedule-day-label">${esc(label)}</strong><small class="schedule-day-sub">${esc(sub)}</small></button>`);
+    }
     cal.innerHTML=cells.join('');cal.querySelectorAll('[data-schedule-date]').forEach(b=>b.addEventListener('click',()=>{state.scheduleSelectedDate=b.dataset.scheduleDate;renderSchedule();}));
     let selected=state.scheduleSelectedDate&&state.scheduleSelectedDate.slice(0,7)===month?state.scheduleSelectedDate:'';if(!selected){selected=byDate.has(today)?today:(rows[0]?.date||'');state.scheduleSelectedDate=selected;}
-    const row=byDate.get(selected);if(detail){if(!selected)detail.innerHTML='<p class="muted">這個月份沒有主系統發布的個人班表。</p>';else if(!row)detail.innerHTML=`<b>${esc(selected)}</b><p class="muted">當日主系統沒有發布個人班表。</p>`;else{const start=row.startTime||row.start||'',end=row.endTime||row.end||'';detail.innerHTML=`<b>${esc(selected)}｜${esc(scheduleDayLabel(row))}</b><div class="schedule-detail-grid"><span>班別<strong>${esc(row.shiftName||row.shiftId||'—')}</strong></span><span>時間<strong>${esc(start||'—')} ～ ${esc(end||'—')}</strong></span><span>休息<strong>${row.breakMins===undefined?'—':esc(row.breakMins)+' 分'}</strong></span><span>狀態<strong>${esc(row.status||row.calendarWriteStatus||'已發布')}</strong></span></div>${row.note?`<p>${esc(row.note)}</p>`:''}${rosterRowIsRest(row)&&selected>=portalDate()?`<button class="ghost schedule-adjust-shortcut" type="button" onclick="selectRosterChangeFrom('${esc(selected)}')">申請調整這個休假日</button>`:''}`;}}renderRosterChangeOptions();
+    const row=byDate.get(selected);if(detail){if(!selected)detail.innerHTML='<p class="muted">這個月份沒有主系統發布的個人班表。</p>';else if(!row)detail.innerHTML=`<b>${esc(selected)}</b><p class="muted">當日主系統沒有發布個人班表。</p>`;else{const start=row.startTime||row.start||'',end=row.endTime||row.end||'',kind=scheduleDayKind(row);detail.innerHTML=`<div class="schedule-detail-title ${kind}"><b>${esc(selected)}｜${esc(scheduleDayLabel(row))}</b><span>${kind==='rest'?'休假日':kind==='leave'?'核准休假':'工作日'}</span></div><div class="schedule-detail-grid"><span>班別<strong>${kind==='work'?esc(row.shiftName||row.shiftId||'—'):'—'}</strong></span><span>時間<strong>${kind==='work'?`${esc(start||'—')} ～ ${esc(end||'—')}`:'本日不排正常工時'}</strong></span><span>休息<strong>${kind==='work'?(row.breakMins===undefined?'—':esc(row.breakMins)+' 分'):'—'}</strong></span><span>狀態<strong>${esc(row.status||row.calendarWriteStatus||'已發布')}</strong></span></div>${row.note?`<p>${esc(row.note)}</p>`:''}${rosterRowIsRest(row)&&selected>=portalDate()?`<button class="ghost schedule-adjust-shortcut" type="button" onclick="selectRosterChangeFrom('${esc(selected)}')">申請調整這個休假日</button>`:''}`;}}renderRosterChangeOptions();
   }
   function workPlanOwnDepartment(){return String(state.portal?.profile?.department||state.employee?.department||'').trim();}
   function workPlanRows(){const rows=Array.isArray(state.portal?.departmentWorkPlan?.rows)?state.portal.departmentWorkPlan.rows:[];return rows.map(r=>({date:r.date??r.d??'',department:r.department??r.p??'',departmentName:r.departmentName??r.n??'',title:r.title??r.t??'',batchCode:r.batchCode??r.b??'',category:r.category??r.c??'',importance:r.importance??r.i??'major',loadLabel:r.loadLabel??r.l??''}));}
@@ -356,14 +372,14 @@
     const monthInput=$('workPlanMonth'),tabs=$('workPlanTabs'),list=$('workPlanList'),sum=$('workPlanSummary'),note=$('workPlanNote');if(!monthInput||!tabs||!list)return;
     const today=portalDate(),months=workPlanAvailableMonths();if(!monthInput.value)monthInput.value=months.includes(today.slice(0,7))?today.slice(0,7):(months[0]||today.slice(0,7));const month=monthInput.value;
     const all=workPlanRows().filter(x=>String(x.date||'').slice(0,7)===month);const plan=state.portal?.departmentWorkPlan||{};const depMap=new Map();(plan.departments||[]).forEach(d=>{if(d&&d.id)depMap.set(String(d.id),{id:String(d.id),name:String(d.name||d.id),icon:String(d.icon||'')});});all.forEach(r=>{const id=String(r.department||'');if(id&&!depMap.has(id))depMap.set(id,{id,name:String(r.departmentName||id),icon:''});});
-    const own=workPlanOwnDepartment();if(!state.workPlanDepartment){const ownDep=[...depMap.values()].find(d=>d.name===own||own.includes(d.name)||d.name.includes(own));state.workPlanDepartment=ownDep?.id||'all';}
+    const own=workPlanOwnDepartment();if(!state.workPlanDepartment)state.workPlanDepartment='all';
     if(state.workPlanDepartment!=='all'&&!depMap.has(state.workPlanDepartment))state.workPlanDepartment='all';
     const deps=[{id:'all',name:'總覽',icon:'◎'},...[...depMap.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-Hant'))];tabs.innerHTML=deps.map(d=>`<button type="button" class="work-plan-tab ${state.workPlanDepartment===d.id?'active':''}" data-work-plan-dept="${esc(d.id)}">${esc(d.icon||'')} ${esc(d.name)}</button>`).join('');tabs.querySelectorAll('[data-work-plan-dept]').forEach(b=>b.addEventListener('click',()=>{state.workPlanDepartment=b.dataset.workPlanDept||'all';renderWorkPlan();}));
     const rows=(state.workPlanDepartment==='all'?all:all.filter(x=>String(x.department||'')===state.workPlanDepartment)).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.departmentName||'').localeCompare(String(b.departmentName||''),'zh-Hant'));
     const critical=rows.filter(x=>String(x.importance||'')==='critical').length,ownCount=all.filter(x=>String(x.departmentName||'')===own).length;
     if(sum)sum.innerHTML=`<div><small>${esc(month)} 重大工作</small><b>${rows.length} 項</b></div><div><small>其中重大</small><b>${critical} 項</b></div><div><small>我的部門</small><b>${ownCount} 項</b></div>`;
     if(note)note.textContent=plan.planningReady===false?'批次月曆尚未建立可用批次工作事項；請主管先在主系統設定正式批次或第一批日期。':`${plan.note||'資料由主系統批次月曆同步。'}｜資料時間 ${plan.generatedAt||state.portal?.updatedAt||'—'}`;
-    if(!rows.length){list.innerHTML=`<p class="muted">${esc(month)} ${state.workPlanDepartment==='all'?'目前沒有批次月曆重大工作事項。':'這個部門目前沒有重大工作事項。'}</p>`;return;}
+    if(!rows.length){const known=workPlanRows().length,available=workPlanAvailableMonths();list.innerHTML=`<div class="work-plan-empty"><b>${esc(month)} 尚未收到可顯示的重大工作事項</b><span>${state.workPlanDepartment==='all'?'目前全場工作項目為空。':'目前此部門沒有工作項目。'}</span><small>員工端目前共收到 ${known} 項；可用月份：${available.length?esc(available.join('、')):'尚無'}。請主管在主系統先重新產生批次月曆，再執行「同步打卡＋員工自助中心」或重新發布本月班表。</small></div>`;return;}
     const grouped=new Map();rows.forEach(r=>{const d=String(r.date||'');if(!grouped.has(d))grouped.set(d,[]);grouped.get(d).push(r);});
     list.innerHTML=[...grouped.entries()].map(([date,items])=>{const isToday=date===today,isPast=date<today;return `<section class="work-plan-day ${isToday?'today':''} ${isPast?'past':''}"><div class="work-plan-day-head"><div><small>${isToday?'今天｜':''}${esc(date)}</small><b>${items.length} 項重大工作</b></div>${isToday?'<span class="work-plan-today-badge">TODAY</span>':''}</div><div class="work-plan-items">${items.map(r=>`<article class="work-plan-item ${workPlanImportanceClass(r)} ${String(r.departmentName||'')===own?'own-department':''}"><div class="work-plan-item-head"><span>${esc(r.departmentName||r.department||'未分類')}</span><b>${esc(workPlanImportanceLabel(r))}</b></div><h3>${esc(r.title||'重大工作')}</h3><div class="work-plan-meta">${r.batchCode?`<span>批次 ${esc(r.batchCode)}</span>`:''}${r.category?`<span>${esc(r.category)}</span>`:''}${r.loadLabel?`<span>${esc(r.loadLabel)}</span>`:''}</div></article>`).join('')}</div></section>`}).join('');
   }
