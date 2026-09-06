@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W441 FIX377 | regular-wage payroll basis + retired attendance bonus + detailed locked formulas.
+  // W443 FIX379 | readable-time audit + W441 payroll bridge schema compatibility.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -534,7 +534,7 @@
     const rows=(state.workPlanDepartment==='all'?all:all.filter(x=>String(x.department||'')===state.workPlanDepartment)).slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.departmentName||'').localeCompare(String(b.departmentName||''),'zh-Hant'));
     const critical=rows.filter(x=>String(x.importance||'')==='critical').length,ownCount=all.filter(x=>String(x.departmentName||'')===own).length;
     if(sum)sum.innerHTML=`<div><small>${esc(month)} 重大工作</small><b>${rows.length} 項</b></div><div><small>其中重大</small><b>${critical} 項</b></div><div><small>我的部門</small><b>${ownCount} 項</b></div>`;
-    if(note)note.textContent=plan.planningReady===false?'批次月曆尚未建立可用批次工作事項；請主管先在主系統設定正式批次或第一批日期。':`${plan.note||'資料由主系統批次月曆同步。'}｜資料時間 ${plan.generatedAt||state.portal?.updatedAt||'—'}`;
+    if(note){const rawPlanTime=plan.generatedAt||state.portal?.updatedAt||'';const rt=syncTimeDisplay(rawPlanTime);note.textContent=plan.planningReady===false?'批次月曆尚未建立可用批次工作事項；請主管先在主系統設定正式批次或第一批日期。':`${plan.note||'資料由主系統批次月曆同步。'}｜資料時間 ${rt.main}${rt.age?`（${rt.age}）`:''}`;}
     if(!rows.length){const known=workPlanRows().length,available=workPlanAvailableMonths();list.innerHTML=`<div class="work-plan-empty"><b>${esc(month)} 尚未收到可顯示的重大工作事項</b><span>${state.workPlanDepartment==='all'?'目前全場工作項目為空。':'目前此部門沒有工作項目。'}</span><small>員工端目前共收到 ${known} 項；可用月份：${available.length?esc(available.join('、')):'尚無'}。請主管在主系統先重新產生批次月曆，再執行「同步打卡＋員工自助中心」或重新發布本月班表。</small></div>`;return;}
     const grouped=new Map();rows.forEach(r=>{const d=String(r.date||'');if(!grouped.has(d))grouped.set(d,[]);grouped.get(d).push(r);});
     list.innerHTML=[...grouped.entries()].map(([date,items])=>{const isToday=date===today,isPast=date<today;return `<section class="work-plan-day ${isToday?'today':''} ${isPast?'past':''}"><div class="work-plan-day-head"><div><small>${isToday?'今天｜':''}${esc(date)}</small><b>${items.length} 項重大工作</b></div>${isToday?'<span class="work-plan-today-badge">TODAY</span>':''}</div><div class="work-plan-items">${items.map(r=>`<article class="work-plan-item ${workPlanImportanceClass(r)} ${String(r.departmentName||'')===own?'own-department':''}"><div class="work-plan-item-head"><span>${esc(r.departmentName||r.department||'未分類')}</span><b>${esc(workPlanImportanceLabel(r))}</b></div><h3>${esc(r.title||'重大工作')}</h3><div class="work-plan-meta">${r.batchCode?`<span>批次 ${esc(r.batchCode)}</span>`:''}${r.category?`<span>${esc(r.category)}</span>`:''}${r.loadLabel?`<span>${esc(r.loadLabel)}</span>`:''}</div></article>`).join('')}</div></section>`}).join('');
