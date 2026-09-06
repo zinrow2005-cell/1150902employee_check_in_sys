@@ -1,7 +1,7 @@
-# W432 FIX368 CLEAN 部署
+# W432 FIX368R1 CAMERA VERIFIED 部署
 
 1. GitHub repository 根目錄以本資料夾全部檔案覆蓋。
-2. 確認登入頁顯示「GitHub 員工自助端 W432 FIX368」。
+2. 確認登入頁顯示「GitHub 員工自助端 W432 FIX368R1」。
 3. Apps Script 用 `backend_google_apps_script/Code.gs` 完整更新同一個 Web App 部署。
 4. 「測試橋接」必須回傳 `W432_FIX368_CLEAN`。
 5. 回主系統確認 SYNC_KEY、啟用橋接並重新同步員工帳號＋自助資料。
@@ -11,3 +11,6 @@
 9. 正常出勤仍測試 `上班 → 下班`；特殊回場才建立第 2 段。
 
 10. 測試「我的班表 → 申請調整這個休假日」；主系統同步後應看到「休假日期調整」待審，核准後手機班表才變更。
+
+
+本 R1 只修改 GitHub 員工端相機；Apps Script 橋接版本仍回傳 `W432_FIX368_CLEAN`，不需重新部署 Code.gs。

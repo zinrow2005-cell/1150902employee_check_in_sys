@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W432 FIX368 CLEAN | 15-day persistent login + robust widest-view camera.
+  // W432 FIX368R1 CAMERA VERIFIED | 15-day login + verified live-frame camera + native fallback.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -37,7 +37,7 @@
     return exp;
   }
   const persistedLogin=savedLogin();
-  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0};
+  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -397,26 +397,28 @@
   function updateCameraStamp(){const now=twParts();if($('cameraStampFarm'))$('cameraStampFarm').textContent=CFG.farmName||'王泰山畜牧場';if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';if($('cameraStampTime'))$('cameraStampTime').textContent=`台灣時間 ${now.date} ${now.time}`;}
   function startCameraStamp(){updateCameraStamp();if(state.cameraStampTimer)clearInterval(state.cameraStampTimer);state.cameraStampTimer=setInterval(updateCameraStamp,1000);if($('cameraStamp'))$('cameraStamp').hidden=false;}
   function updateCameraZoomLabels(){const label=state.cameraZoomLabel||'最廣';if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=label;if($('cameraZoomStatic'))$('cameraZoomStatic').textContent=label;}
+  function setCameraLiveBadge(text,mode='checking'){const el=$('cameraLiveBadge');if(!el)return;el.textContent=text||'';el.className='camera-live-badge '+mode;}
+  function hideCameraFallback(){const el=$('cameraFallback');if(el)el.hidden=true;}
+  function showCameraFallback(message){const box=$('cameraFallback');if(!box)return;if($('cameraFallbackText'))$('cameraFallbackText').textContent=message||'即時相機沒有取得可用影像。';box.hidden=false;setCameraLiveBadge('鏡頭未就緒','error');}
   function enterCameraFullscreen(){const wrap=$('cameraWrap');if(wrap){wrap.hidden=false;wrap.classList.add('camera-fullscreen');document.body.classList.add('camera-live');}updateCameraZoomLabels();}
   function exitCameraFullscreen(){const wrap=$('cameraWrap');if(wrap)wrap.classList.remove('camera-fullscreen');document.body.classList.remove('camera-live');}
   function zoomLabel_(value){const n=Number(value);if(!Number.isFinite(n))return '最廣';const rounded=Math.round(n*100)/100;return `${String(rounded).replace(/\.0+$/,'')}X`; }
   async function forceMinimumZoom(){
-    const track=state.stream?.getVideoTracks?.()[0];state.cameraZoomLabel='最廣';if(!track){updateCameraZoomLabels();return;}
+    const track=state.stream?.getVideoTracks?.()[0];state.cameraZoomLabel='最廣';state.cameraZoomApplied=false;if(!track){updateCameraZoomLabels();return {applied:false,target:null};}
     try{
-      const caps=track.getCapabilities?.()||{},settings=track.getSettings?.()||{};
+      const caps=track.getCapabilities?.()||{},settings=track.getSettings?.()||{};let target=null;
       if(caps.zoom!==undefined){
-        let target=null;
         if(typeof caps.zoom==='object'){const min=Number(caps.zoom.min);if(Number.isFinite(min))target=min;}
         else if(Number.isFinite(Number(caps.zoom)))target=Number(caps.zoom);
-        if(target!==null){await track.applyConstraints({advanced:[{zoom:target}]});state.cameraZoomLabel=zoomLabel_(target);}
+        if(target!==null){await track.applyConstraints({advanced:[{zoom:target}]});state.cameraZoomLabel=zoomLabel_(target);state.cameraZoomApplied=true;}
       }else if(Number.isFinite(Number(settings.zoom))){state.cameraZoomLabel=zoomLabel_(settings.zoom);}
-    }catch(_e){state.cameraZoomLabel='最廣';}
-    updateCameraZoomLabels();
+    }catch(_e){state.cameraZoomLabel='最廣';state.cameraZoomApplied=false;}
+    updateCameraZoomLabels();return {applied:state.cameraZoomApplied,target:state.cameraZoomApplied?Number((track.getSettings?.()||{}).zoom):null};
   }
-  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}if($('cameraLoading'))$('cameraLoading').hidden=true;exitCameraFullscreen();}
+  function stopCamera(){if(state.cameraStampTimer){clearInterval(state.cameraStampTimer);state.cameraStampTimer=null;}if(state.stream){state.stream.getTracks().forEach(t=>{try{t.stop()}catch(_e){}});}state.stream=null;state.cameraFrameVerified=false;state.cameraZoomApplied=false;const v=$('cameraVideo');if(v){v.pause?.();v.srcObject=null;}if($('cameraLoading'))$('cameraLoading').hidden=true;setCameraLiveBadge('鏡頭已關閉','off');exitCameraFullscreen();}
   function clearPhoto(){if(state.photoUrl)URL.revokeObjectURL(state.photoUrl);state.photoUrl='';state.photoBlob=null;state.photoTakenAt='';state.lineShared=false;state.lineShareMethod='';state.shareBusy=false;state.lastShareAttemptAt=0;closeConfirm('photoReviewOverlay');closeConfirm('photoConfirmOverlay');closeConfirm('lineResultOverlay');$('photoPreview').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;$('faceGuide').hidden=false;if($('cameraStamp'))$('cameraStamp').hidden=false;$('photoActions').hidden=true;if($('photoReviewBox'))$('photoReviewBox').hidden=true;$('lineConfirm').hidden=true;$('submitPunchBtn').hidden=true;$('downloadPhotoLink').hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;}
-  function cancelFlow(){stopCamera();clearPhoto();state.type='';state.location=null;state.locationLabel='';$('flowPanel').hidden=true;status($('flowStatus'),'');}
-  function beginFlow(type){const seq=updatePunchActionState();if(type!==seq.nextType){const msg=seq.openSegment?'目前已有尚未下班的工作時段，請先完成下班打卡。':'目前沒有進行中的上班時段，請先上班打卡。';status($('punchGuardStatus'),msg,'error');return;}if(type==='上班'&&seq.completed>0&&!seq.openSegment){const next=seq.completed+1;const ok=window.confirm(`今天第 ${seq.completed} 段已完成。\n只有確定再次回場工作，才建立第 ${next} 段上班。\n\n確定要「再次上班」嗎？`);if(!ok){status($('punchGuardStatus'),'已取消再次上班；正常一天一段不需要再打卡。','');return;}}const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
+  function cancelFlow(){stopCamera();clearPhoto();state.type='';state.location=null;state.locationLabel='';if($('openCameraBtn'))$('openCameraBtn').hidden=true;$('flowPanel').hidden=true;status($('flowStatus'),'');}
+  function beginFlow(type){const seq=updatePunchActionState();if(type!==seq.nextType){const msg=seq.openSegment?'目前已有尚未下班的工作時段，請先完成下班打卡。':'目前沒有進行中的上班時段，請先上班打卡。';status($('punchGuardStatus'),msg,'error');return;}if(type==='上班'&&seq.completed>0&&!seq.openSegment){const next=seq.completed+1;const ok=window.confirm(`今天第 ${seq.completed} 段已完成。\n只有確定再次回場工作，才建立第 ${next} 段上班。\n\n確定要「再次上班」嗎？`);if(!ok){status($('punchGuardStatus'),'已取消再次上班；正常一天一段不需要再打卡。','');return;}}const g=clientPunchGuard(type);if(g.blocked){status($('punchGuardStatus'),g.message,'error');return;}status($('punchGuardStatus'),'','');cancelFlow();state.type=type;$('flowPanel').hidden=false;$('flowTitle').textContent=type+'打卡';$('locationBox').innerHTML='<b>尚未定位</b><span>點「開始定位」取得現在位置與地名。</span>';$('locateBtn').hidden=false;if($('openCameraBtn'))$('openCameraBtn').hidden=true;$('cameraWrap').hidden=true;$('cameraActions').hidden=true;completeBefore('gps');$('flowPanel').scrollIntoView({behavior:'smooth',block:'start'});}
   function geoDistanceM(lat1,lon1,lat2,lon2){const R=6371000,r=Math.PI/180,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;const a=Math.sin(dLat/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
   async function reverseGeo(lat,lng){
     const fallback=`緯度 ${lat.toFixed(6)}、經度 ${lng.toFixed(6)}`;
@@ -432,7 +434,7 @@
     try{let p;try{p=await getPosition({enableHighAccuracy:true,timeout:12000,maximumAge:0});}catch(_e){p=await getPosition({enableHighAccuracy:false,timeout:12000,maximumAge:0});}
       state.location={latitude:p.coords.latitude,longitude:p.coords.longitude,accuracyM:p.coords.accuracy};state.locationLabel=await reverseGeo(p.coords.latitude,p.coords.longitude);
       $('locationBox').innerHTML=`<b>${esc(state.locationLabel)}</b><span>${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}｜誤差約 ${Math.round(p.coords.accuracy||0)} 公尺</span>`;
-      setStep('gps','done');setStep('photo','active');$('locateBtn').hidden=true;const opened=await startCamera();if(opened)status($('flowStatus'),`定位完成｜相機已使用 ${state.cameraZoomLabel||'最廣'} 視角，請拍攝本人與現場背景。`,'ok');
+      setStep('gps','done');setStep('photo','active');$('locateBtn').hidden=true;if($('openCameraBtn'))$('openCameraBtn').hidden=false;status($('flowStatus'),'定位完成。請再點「開啟鏡頭拍照」；這一步會用直接觸控手勢真正啟動相機，避免 iPhone／Android 黑屏。','ok');
     }catch(e){const text=e&&e.code===1?'定位權限被拒絕，請到瀏覽器網站權限允許「位置」。':e&&e.code===3?'定位逾時，請移到較容易收到 GPS 的位置再試。':'暫時無法取得位置，請確認手機定位已開啟。';status($('flowStatus'),text,'error');}
     finally{$('locateBtn').disabled=false;}
   }
@@ -452,22 +454,45 @@
     else await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     return v;
   }
-  async function requestCameraStream(simple=false){
-    const video=simple?{facingMode:{ideal:state.facing}}:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600},resizeMode:{ideal:'none'}};
-    try{return await navigator.mediaDevices.getUserMedia({audio:false,video});}
-    catch(err){if(!simple)return navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:state.facing}}});throw err;}
+  async function requestCameraStream(mode=0){
+    const candidates=[
+      {facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600},resizeMode:{ideal:'none'}},
+      {facingMode:{ideal:state.facing}},
+      {facingMode:state.facing},
+      true
+    ];
+    const video=candidates[Math.max(0,Math.min(candidates.length-1,Number(mode)||0))];
+    return navigator.mediaDevices.getUserMedia({audio:false,video});
+  }
+  function sampleVideoPixels(v){
+    const c=document.createElement('canvas');c.width=96;c.height=72;const ctx=c.getContext('2d',{alpha:false,willReadFrequently:true});ctx.drawImage(v,0,0,c.width,c.height);const d=ctx.getImageData(0,0,c.width,c.height).data;let max=0,sum=0,sumSq=0,count=0,nonZero=0;
+    for(let i=0;i<d.length;i+=16){const y=(Number(d[i])+Number(d[i+1])+Number(d[i+2]))/3;max=Math.max(max,y);sum+=y;sumSq+=y*y;count++;if(y>2)nonZero++;}
+    const mean=count?sum/count:0,variance=count?Math.max(0,sumSq/count-mean*mean):0;return {max,mean,variance,nonZero,count,black:max<=2&&nonZero===0};
+  }
+  async function verifyLiveCameraFrame(v,phase='鏡頭',timeoutMs=3800){
+    const track=state.stream?.getVideoTracks?.()[0];if(!track||track.readyState!=='live')throw new Error(`${phase}串流沒有處於 live 狀態`);
+    const start=performance.now(),startTime=Number(v.currentTime||0);let last=null,advanced=false;
+    while(performance.now()-start<timeoutMs){
+      await waitForVideoFrame(v);const nowTime=Number(v.currentTime||0);if(nowTime>startTime+0.03)advanced=true;last=sampleVideoPixels(v);
+      if(advanced&&last&&!last.black){state.cameraFrameVerified=true;return {track,frame:last,currentTime:nowTime};}
+      await new Promise(r=>setTimeout(r,120));
+    }
+    const detail=last?`max=${Math.round(last.max)} mean=${last.mean.toFixed(1)}`:'no-frame';throw new Error(`${phase}串流存在，但沒有取得可用影像（${detail}）`);
   }
   async function startCamera(){
-    stopCamera();clearPhoto();if(!navigator.mediaDevices?.getUserMedia){status($('flowStatus'),'瀏覽器不支援即時相機。請使用 Safari 或 Chrome 並以 HTTPS 開啟。','error');return;}
-    const seq=++state.cameraStartSeq;$('cameraWrap').hidden=false;$('cameraActions').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;if($('cameraLoading'))$('cameraLoading').hidden=false;state.cameraZoomLabel='最廣';enterCameraFullscreen();status($('flowStatus'),'正在啟動相機，等待即時影像…');
+    stopCamera();clearPhoto();hideCameraFallback();if(!navigator.mediaDevices?.getUserMedia){status($('flowStatus'),'瀏覽器不支援即時相機。請改用手機系統相機。','error');showCameraFallback('此瀏覽器不支援網頁即時相機，請改用手機系統相機拍照。');return false;}
+    const seq=++state.cameraStartSeq;$('cameraWrap').hidden=false;$('cameraActions').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;if($('cameraLoading'))$('cameraLoading').hidden=false;state.cameraZoomLabel='最廣';state.cameraFrameVerified=false;state.cameraZoomApplied=false;enterCameraFullscreen();setCameraLiveBadge('正在檢查鏡頭','checking');status($('flowStatus'),'正在真正開啟相機並檢查即時影像…');
     let lastErr=null;
-    for(let attempt=0;attempt<2;attempt++){
+    for(let attempt=0;attempt<3;attempt++){
       try{
-        const stream=await requestCameraStream(attempt>0);if(seq!==state.cameraStartSeq){stream.getTracks().forEach(t=>t.stop());return;}
-        state.stream=stream;await attachAndPlayCamera(stream);await forceMinimumZoom();startCameraStamp();if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=false;status($('flowStatus'),`相機已全螢幕開啟｜使用 ${state.cameraZoomLabel||'最廣'} 視角。請確認本人與現場背景後拍照。`,'ok');return true;
-      }catch(e){lastErr=e;stopCamera();if(attempt===0){$('cameraWrap').hidden=false;enterCameraFullscreen();status($('flowStatus'),'第一次啟動沒有取得影像，正在自動重新開啟相機…');await new Promise(r=>setTimeout(r,220));}}
+        const stream=await requestCameraStream(attempt);if(seq!==state.cameraStartSeq){stream.getTracks().forEach(t=>t.stop());return false;}
+        state.stream=stream;const v=await attachAndPlayCamera(stream);setCameraLiveBadge('檢查即時影像','checking');await verifyLiveCameraFrame(v,'倍率調整前');
+        if(attempt===0){const zr=await forceMinimumZoom();if(zr.applied){setCameraLiveBadge(`檢查 ${state.cameraZoomLabel} 影像`,'checking');await new Promise(r=>setTimeout(r,180));try{await verifyLiveCameraFrame(v,'最小倍率套用後',3000);}catch(e){e.code='ZOOM_BLACK';throw e;}}}
+        else{state.cameraZoomLabel='最廣';state.cameraZoomApplied=false;updateCameraZoomLabels();}
+        const track=state.stream?.getVideoTracks?.()[0],s=track?.getSettings?.()||{};startCameraStamp();if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=false;state.cameraFrameVerified=true;setCameraLiveBadge('● 鏡頭已開啟','live');if($('openCameraBtn'))$('openCameraBtn').hidden=true;status($('flowStatus'),`鏡頭已確認有即時影像｜${s.width||v.videoWidth}×${s.height||v.videoHeight}｜${state.cameraZoomLabel||'最廣'}。現在才可拍照。`,'ok');return true;
+      }catch(e){lastErr=e;const zoomProblem=e?.code==='ZOOM_BLACK';stopCamera();$('cameraWrap').hidden=false;enterCameraFullscreen();if($('cameraLoading'))$('cameraLoading').hidden=false;setCameraLiveBadge('重新開啟鏡頭','checking');if(attempt<2){status($('flowStatus'),zoomProblem?'最小倍率套用後影像變黑，已取消 Web zoom 並重新開啟鏡頭…':'鏡頭尚未取得有效影像，正在改用較相容的相機設定重新開啟…');await new Promise(r=>setTimeout(r,260));}}
     }
-    if($('cameraLoading'))$('cameraLoading').hidden=true;exitCameraFullscreen();$('cameraWrap').hidden=true;const msg=String(lastErr?.message||'');status($('flowStatus'),/NotAllowed|Permission|denied/i.test(msg)?'相機權限被拒絕，請到瀏覽器網站權限允許「相機」後重試。':'相機沒有取得即時影像。請關閉其他正在使用相機的 App，回到本頁再試一次。','error');return false;
+    if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=true;const msg=String(lastErr?.message||'');const denied=/NotAllowed|Permission|denied/i.test(msg);const text=denied?'相機權限被拒絕。請允許相機權限，或改用手機系統相機。':'網頁即時相機仍沒有取得真正影像，已停止黑屏預覽。請改用手機系統相機。';status($('flowStatus'),text,'error');showCameraFallback(text);if($('openCameraBtn'))$('openCameraBtn').hidden=false;return false;
   }
   async function switchCamera(){state.facing=state.facing==='user'?'environment':'user';await startCamera();}
   function wrapText(ctx,text,maxWidth){const chars=Array.from(String(text||'')),lines=[];let line='';chars.forEach(ch=>{const test=line+ch;if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=ch;}else line=test;});if(line)lines.push(line);return lines.slice(0,3);}
@@ -505,7 +530,7 @@
     openConfirm('photoConfirmOverlay');
   }
   async function takePhoto(){
-    const btn=$('takePhotoBtn'),v=$('cameraVideo');if(btn)btn.disabled=true;
+    const btn=$('takePhotoBtn'),v=$('cameraVideo');if(!state.cameraFrameVerified){status($('flowStatus'),'鏡頭尚未通過即時影像檢查，不能拍照。請重新開啟鏡頭或改用手機系統相機。','error');return;}if(btn)btn.disabled=true;
     try{
       await waitForVideoFrame(v);if(!v.videoWidth||!v.videoHeight)throw new Error('相機尚未準備完成，請再試一次。');
       const c=$('photoCanvas'),max=1440,scale=Math.min(1,max/v.videoWidth),w=Math.round(v.videoWidth*scale),h=Math.round(v.videoHeight*scale);c.width=w;c.height=h;const ctx=c.getContext('2d',{alpha:false});
@@ -516,6 +541,20 @@
       state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;v.hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;if($('photoReviewBox'))$('photoReviewBox').hidden=false;const dl=$('downloadPhotoLink');dl.href=state.photoUrl;dl.download=`WTS_${state.employee?.id||'EMP'}_${state.type}_${now.date.replaceAll('-','')}_${Date.now()}.jpg`;dl.hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;stopCamera();setStep('photo','active');setStep('line','');status($('flowStatus'),'自拍完成，尚未傳送。系統已開啟照片預覽；請先確認照片，再決定重拍或使用這張。','ok');showPhotoReviewOverlay();
     }catch(e){status($('flowStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}
+  }
+  async function loadNativeCameraPhoto(file){
+    if(!file)return;status($('flowStatus'),'正在讀取手機系統相機照片…');
+    try{
+      let source=null,cleanup=()=>{};
+      if('createImageBitmap'in window){source=await createImageBitmap(file,{imageOrientation:'from-image'}).catch(()=>createImageBitmap(file));cleanup=()=>{try{source.close?.();}catch(_e){}};}
+      else{source=await new Promise((resolve,reject)=>{const img=new Image(),u=URL.createObjectURL(file);img.onload=()=>{URL.revokeObjectURL(u);resolve(img);};img.onerror=()=>{URL.revokeObjectURL(u);reject(new Error('手機相機照片讀取失敗'));};img.src=u;});}
+      const sw=Number(source.width||source.naturalWidth||0),sh=Number(source.height||source.naturalHeight||0);if(!sw||!sh)throw new Error('手機系統相機沒有回傳有效照片');
+      const c=$('photoCanvas'),max=1440,scale=Math.min(1,max/sw),w=Math.max(1,Math.round(sw*scale)),h=Math.max(1,Math.round(sh*scale));c.width=w;c.height=h;const ctx=c.getContext('2d',{alpha:false});ctx.drawImage(source,0,0,w,h);cleanup();
+      if(canvasLooksBlank(ctx,w,h))throw new Error('手機系統相機回傳的照片仍是全黑，請重新拍攝。');
+      const now=twParts();state.photoTakenAt=now.dateTime;const bandH=Math.max(170,Math.round(h*.21));ctx.fillStyle='rgba(10,24,15,.78)';ctx.fillRect(0,h-bandH,w,bandH);ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.035))}px sans-serif`;ctx.fillText(`${CFG.farmName||'王泰山畜牧場'}｜${state.type}打卡`,24,h-bandH+42);ctx.font=`600 ${Math.max(20,Math.round(w*.028))}px sans-serif`;ctx.fillText(`${state.employee?.name||state.employee?.id||'員工'}｜${now.dateTime} 台灣時間`,24,h-bandH+82);ctx.font=`500 ${Math.max(17,Math.round(w*.023))}px sans-serif`;let y=h-bandH+118;wrapText(ctx,state.locationLabel,w-48).forEach(line=>{ctx.fillText(line,24,y);y+=Math.max(24,Math.round(w*.03));});
+      const blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',0.88));if(!blob)throw new Error('照片建立失敗');state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;$('cameraVideo').hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;if($('photoReviewBox'))$('photoReviewBox').hidden=false;hideCameraFallback();stopCamera();status($('flowStatus'),'手機系統相機拍照完成；請先確認照片。','ok');showPhotoReviewOverlay();
+    }catch(e){status($('flowStatus'),e.message||String(e),'error');showCameraFallback(e.message||'系統相機照片無法使用，請再試一次。');}
+    finally{const input=$('nativeCameraInput');if(input)input.value='';}
   }
   function reviewPhotoAndAskLineShare(){
     if(!state.photoBlob){status($('flowStatus'),'目前沒有可用的自拍照片，請重新拍攝。','error');return;}
@@ -613,7 +652,7 @@
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
-  $('loginBtn').addEventListener('click',login);$('employeeId').addEventListener('keydown',e=>{if(e.key==='Enter')$('employeePin').focus();});$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if($('cameraCancelBtn'))$('cameraCancelBtn').addEventListener('click',cancelFlow);$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
+  $('loginBtn').addEventListener('click',login);$('employeeId').addEventListener('keydown',e=>{if(e.key==='Enter')$('employeePin').focus();});$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if($('cameraCancelBtn'))$('cameraCancelBtn').addEventListener('click',cancelFlow);$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);if($('openCameraBtn'))$('openCameraBtn').addEventListener('click',startCamera);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);if($('nativeCameraBtn'))$('nativeCameraBtn').addEventListener('click',()=>$('nativeCameraInput')?.click());if($('nativeCameraInput'))$('nativeCameraInput').addEventListener('change',e=>loadNativeCameraPhoto(e.target.files?.[0]));$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
   document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitPreleaveBtn').addEventListener('click',submitPreleave);$('submitRosterChangeBtn').addEventListener('click',submitRosterChange);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('workPlanMonth').addEventListener('change',renderWorkPlan);$('workPlanPrevBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,-1);renderWorkPlan();});$('workPlanNextBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,1);renderWorkPlan();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});restoreEmployee();
 })();

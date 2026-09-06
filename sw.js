@@ -1,6 +1,6 @@
-// W432 FIX368 CLEAN
-const CACHE='wts-employee-portal-current-20260905-fix368';
-const ASSETS=['./','index.html','style.css?v=432368','app.js?v=432368','config.js?v=432368','manifest.webmanifest','assets/wts-logo-original.png'];
+// W432 FIX368R1 CAMERA VERIFIED
+const CACHE='wts-employee-portal-current-20260906-fix368r1';
+const ASSETS=['./','index.html','style.css?v=432368r1','app.js?v=432368r1','config.js?v=432368r1','manifest.webmanifest','assets/wts-logo-original.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request,{cache:'no-store'}).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r;}).catch(()=>caches.match(e.request).then(r=>r||caches.match('./'))));});

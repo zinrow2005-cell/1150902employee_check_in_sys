@@ -1,6 +1,6 @@
-# 王泰山畜牧場｜GitHub 員工自助中心 W432 FIX368 CLEAN
+# 王泰山畜牧場｜GitHub 員工自助中心 W432 FIX368R1 CAMERA VERIFIED
 
-目前唯一正式版本：`W432_FIX368_CLEAN`  
+目前後端橋接版本：`W432_FIX368_CLEAN`；員工端相機修補：`W432 FIX368R1`  
 正式 Apps Script `/exec`：`https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec`
 
 - `config.js` 是重新載入時的唯一正式橋接來源。
@@ -34,3 +34,7 @@ GitHub 員工自助中心只使用「員工編號＋6 位 PIN」。主系統中�
 - 相機開啟會等待真正 video frame 後才顯示可拍照，若第一次沒有影像會自動以較簡單條件重試一次。
 - 相機倍率會讀取 `MediaStreamTrack.getCapabilities().zoom.min` 並套用最小值；瀏覽器沒有 zoom API 時顯示「最廣」。
 - 全螢幕即時預覽使用 `object-fit: contain`，避免 CSS 裁切造成畫面看起來比實際更近。
+
+
+## FIX368R1｜相機實際影像驗證
+快門只有在 zoom 前後均確認取得非全黑、持續更新的真實 video frame 後才會出現；若 Web 即時相機仍失敗，會改提供手機系統相機。
