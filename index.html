@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="員工自助中心">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="assets/wts-logo-original.png">
-  <link rel="stylesheet" href="style.css?v=434370">
+  <link rel="stylesheet" href="style.css?v=440376">
   <title>王泰山畜牧場｜員工自助中心</title>
 </head>
 <body>
@@ -28,7 +28,7 @@
   </section>
 
   <section class="panel" id="loginPanel">
-    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W435 FIX371</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
+    <div class="section-head"><div><h1>員工登入</h1><p>登入後可使用定位自拍打卡、查看本人班表／工作任務／出勤／薪資單，並送出休假調整、預排休假、請假、補卡、加班申請。</p></div><div class="login-head-actions"><span class="badge">GitHub 員工自助端 W441 FIX377</span><button class="ghost setup-toggle" id="setupToggleBtn" type="button">橋接設定</button></div></div>
     <div class="login-help"><b>登入方式</b><span>使用主系統「員工管理中心」建立的員工編號＋6 位 PIN。員工編號中的英文字母不分大小寫；PIN 不儲存在手機。登入成功後，此裝置可維持 15 天免重新輸入 PIN，主動登出或帳號停用則立即失效。</span></div>
     <label>員工編號<input id="employeeId" inputmode="text" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="例如 WTS999（英文大小寫皆可）"></label>
     <label>6 位 PIN<input id="employeePin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="6" placeholder="請輸入 PIN"></label>
@@ -39,7 +39,7 @@
     <section class="panel employee-card portal-employee-card"><div><small>目前登入</small><h2 id="employeeName">—</h2><p id="employeeMeta">—</p></div><div class="employee-actions"><button class="ghost" id="refreshPortalBtn" type="button">重新整理</button><button class="ghost" id="logoutBtn" type="button">登出</button></div></section>
 
     <section class="portal-view" id="portalHomeView">
-      <section class="panel portal-welcome"><div class="section-head"><div><h2>我的首頁</h2><p id="portalSyncText">正在讀取單機主系統同步的員工資料…</p></div><span class="badge" id="portalStatusBadge">同步中</span></div>
+      <section class="panel portal-welcome"><div class="section-head"><div><h2>我的首頁</h2><p id="portalSyncText" class="portal-sync-text"><span class="portal-sync-message loading">正在讀取最新員工資料…</span></p></div><span class="badge" id="portalStatusBadge">同步中</span></div>
         <div class="portal-summary-grid"><div class="portal-summary"><small>今日打卡</small><b id="homePunchStatus">讀取中</b><span>正式時間以 Apps Script 為準</span></div><div class="portal-summary"><small>今日班表</small><b id="homeScheduleStatus">—</b><span>本人已發布工作月曆</span></div><div class="portal-summary"><small>待辦任務</small><b id="homeWorkTasks">—</b><span>本人已指派工作</span></div><div class="portal-summary"><small>待處理申請</small><b id="homePendingRequests">—</b><span>預排休假／請假／補卡／加班</span></div><div class="portal-summary"><small>特休可用</small><b id="homeAnnualLeave">—</b><span>主系統試算</span></div><div class="portal-summary"><small>正式薪資單</small><b id="homePayslipMonths">—</b><span>需再次輸入 PIN 查詢</span></div></div>
       </section>
       <section class="panel"><div class="section-head"><div><h2>常用功能</h2><p>功能沿用原本主系統的員工自助端概念，改由 GitHub＋Apps Script 橋接。</p></div></div><div class="portal-actions"><button data-open-view="punch">📷 定位自拍打卡<small>上班／下班＋LINE</small></button><button data-open-view="schedule">📅 工作月曆／班表<small>查看個人已發布班表</small></button><button data-open-view="workplan">🗓️ 工作項目表<small>查看各部門重大工作事項</small></button><button data-open-view="tasks">📋 我的工作任務<small>查看指派與回報完成</small></button><button data-open-view="attendance">🕘 我的出勤<small>查看近期上下班紀錄</small></button><button data-open-view="requests">📝 請假與申請<small>預排休假／請假／補卡／加班</small></button><button data-open-view="payroll">💰 正式薪資單<small>再次輸入 PIN 安全查詢</small></button><button data-open-view="profile">👤 我的資料<small>只顯示本人可查看資料</small></button></div></section>
@@ -84,7 +84,7 @@
 
     <section class="portal-view" id="portalPayrollView" hidden>
       <section class="panel payroll-security"><div class="section-head"><div><h2>正式薪資單安全查詢</h2><p>薪資明細不會跟一般員工資料一起預載。每次查詢都要用目前登入 Session，再次輸入本人 6 位 PIN。</p></div><span class="badge">二次驗證</span></div><div class="form-grid"><label>薪資月份<select id="payrollMonth"></select></label><label>再次輸入 6 位 PIN<input id="payrollPin" type="password" inputmode="numeric" autocomplete="off" maxlength="6" placeholder="6 位 PIN"></label></div><button class="primary" id="loadPayslipBtn" type="button">驗證身分並查看薪資單</button><div class="status" id="payrollStatus" aria-live="polite"></div></section>
-      <section class="panel" id="payslipPanel" hidden><div class="section-head"><div><h2 id="payslipTitle">正式薪資單</h2><p id="payslipMeta">—</p></div><button class="ghost" id="printPayslipBtn" type="button">列印／存 PDF</button></div><div id="payslipNet" class="payslip-net">—</div><div id="payslipGrid" class="payslip-grid"></div><p class="payslip-note">只顯示主系統已月結鎖定並同步的本人薪資單。若內容有疑問，請先向主管確認。</p></section>
+      <section class="panel" id="payslipPanel" hidden><div class="section-head"><div><h2 id="payslipTitle">正式薪資單</h2><p id="payslipMeta">—</p></div><button class="ghost" id="printPayslipBtn" type="button">列印／存 PDF</button></div><div id="payslipNet" class="payslip-net">—</div><div id="payslipGrid" class="payslip-grid"></div><div class="employee-calc-section"><h3>我的時薪基準與本月計算</h3><div id="payslipCalcBasis"></div><div id="payslipSalaryFormula"></div></div><div class="employee-calc-section"><h3>加班／國定假日／休假日出勤明細</h3><p class="muted">每一筆會列出日期、核准時數、倍率、公式與小計。</p><div id="payslipOvertimeBreakdown"></div></div><p class="payslip-note">只顯示主系統已月結鎖定並同步的本人薪資單。若內容有疑問，請先向主管確認，不要只看最後實發金額。</p></section>
     </section>
 
     <section class="portal-view" id="portalRequestsView" hidden>
@@ -112,5 +112,5 @@
 <div class="confirm-overlay" id="photoConfirmOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="photoConfirmTitle"><div class="confirm-card"><span class="confirm-kicker">已選用照片</span><h2 id="photoConfirmTitle">這張照片確定要傳到 LINE 群組嗎？</h2><div class="confirm-summary" id="photoConfirmSummary"></div><p>按下確認後才會開啟手機分享面板。分享完成後只把時間、GPS、定位地址回傳主系統，<b>不含照片</b>。</p><div class="status" id="photoConfirmStatus" aria-live="polite"></div><button class="line-btn" id="photoConfirmYesBtn" type="button" data-autofocus>確認這張照片｜傳到 LINE 群組</button><div class="confirm-row"><button class="ghost" id="photoConfirmRetakeBtn" type="button">返回重拍</button><button class="ghost" id="photoConfirmCancelBtn" type="button">回照片預覽</button></div></div></div>
 <div class="confirm-overlay" id="lineResultOverlay" hidden role="dialog" aria-modal="true" aria-labelledby="lineResultTitle"><div class="confirm-card"><span class="confirm-kicker">LINE 分享確認</span><h2 id="lineResultTitle">照片已經傳到指定 LINE 群組了嗎？</h2><p id="lineResultText">請確認剛才是否真的選擇 LINE 並完成傳送。</p><button class="primary" id="lineResultYesBtn" type="button" data-autofocus>是，已傳送｜回傳打卡資料</button><div class="confirm-row"><button class="ghost" id="lineResultRetryBtn" type="button">否，重新分享</button><button class="ghost" id="lineResultNoBtn" type="button">尚未完成</button></div></div></div>
 <iframe name="bridgeFrame" id="bridgeFrame" class="bridge-frame" title="雲端橋接"></iframe>
-<script src="config.js?v=434370"></script><script src="app.js?v=434370"></script>
+<script src="config.js?v=440376"></script><script src="app.js?v=440376"></script>
 </body></html>

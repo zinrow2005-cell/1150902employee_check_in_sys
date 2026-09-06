@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W435 FIX371 | readable request dates + employee leave edit / withdraw / cancellation workflow.
+  // W441 FIX377 | regular-wage payroll basis + retired attendance bonus + detailed locked formulas.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -76,9 +76,13 @@
   function twParts(date=new Date()){
     const dp=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
     const tp=new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(date);
-    const o={};dp.forEach(x=>o[x.type]=x.value);return{date:`${o.year}-${o.month}-${o.day}`,time:tp,dateTime:`${o.year}-${o.month}-${o.day} ${tp}`};
+    const o={};dp.forEach(x=>o[x.type]=x.value);return{date:`${o.year}-${o.month}-${o.day}`,time:tp,dateTime:`${o.year}-${o.month}-${o.day} ${tp}`,year:Number(o.year),month:Number(o.month),day:Number(o.day)};
   }
-  function tick(){const p=twParts();$('todayText').textContent=p.date+'｜台灣時間';$('clockText').textContent=p.time;}
+  function formatHeroDate(date=new Date()){
+    const p=twParts(date),weekday=['日','一','二','三','四','五','六'][new Date(Date.UTC(p.year,p.month-1,p.day)).getUTCDay()];
+    return `${p.year}/${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')}（${weekday}）`;
+  }
+  function tick(){const p=twParts();$('todayText').textContent=formatHeroDate()+'｜台灣時間';$('clockText').textContent=p.time;}
   tick();setInterval(tick,1000);
   function status(el,msg,kind=''){el.textContent=msg||'';el.className='status'+(kind?' '+kind:'');}
   function setStep(key,mode){document.querySelectorAll('.step').forEach(x=>{if(x.dataset.step===key){x.classList.remove('active','done');if(mode)x.classList.add(mode);}});}
@@ -103,7 +107,7 @@
   function restoreEmployee(){
     if(state.employee&&state.token&&state.sessionExpiresAt>Date.now()){
       showPunch();
-      if($('portalSyncText'))$('portalSyncText').textContent='已使用這台裝置的 15 天登入狀態；系統仍會向雲端確認帳號是否有效。';
+      setPortalSyncMessage('正在確認最新資料與登入狀態…','loading');
     }else if(state.token||state.employee){clearSavedLogin(false);state.token='';state.employee=null;state.sessionExpiresAt=0;}
     const remembered=localStorage.getItem('wts_att_employee_id')||'';$('employeeId').value=remembered;
   }
@@ -240,13 +244,49 @@
   function requestIsPendingStatus(v){const s=String(v||'');return /^待同步/.test(s)||['待審核','待確認','文件待補','協商調整中'].includes(s);}
   function statusClass(v){const s=String(v||'');if(requestIsPendingStatus(s))return 'status-pending';return /核准|成立|已排定|完成/.test(s)?'status-approved':/退回|駁回|失敗|已取消|已撤回/.test(s)?'status-rejected':'status-pending';}
   function requestKindName(k,p={}){return k==='preleave'?(p.preScheduleType||p.requestType||'預排休假'):k==='leave'?(p.leaveName||p.leaveTypeCode||'請假'):k==='leave_cancel'?'取消請假申請':k==='roster_change'?'休假日期調整':k==='punch_correction'?'補卡申請':k==='overtime'?'加班申請':k==='work_completion'?'工作完成回報':k||'申請';}
+  function portalTimeParts(value){
+    if(value===null||value===undefined||value==='')return null;
+    const d=value instanceof Date?value:new Date(String(value).trim());
+    if(Number.isNaN(d.getTime()))return null;
+    const dp=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+    const tp=new Intl.DateTimeFormat('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit',hour12:false}).format(d);
+    const o={};dp.forEach(x=>o[x.type]=x.value);
+    return {date:`${o.year}-${o.month}-${o.day}`,year:Number(o.year),month:Number(o.month),day:Number(o.day),time:tp,ms:d.getTime()};
+  }
+  function syncTimeDisplay(value){
+    const p=portalTimeParts(value);if(!p)return {main:'尚無同步時間',age:'',full:''};
+    const now=twParts(),today=`${now.year}-${String(now.month).padStart(2,'0')}-${String(now.day).padStart(2,'0')}`;
+    const nowDate=new Date(Date.UTC(now.year,now.month-1,now.day));
+    const syncDate=new Date(Date.UTC(p.year,p.month-1,p.day));
+    const dayDiff=Math.round((nowDate-syncDate)/86400000);
+    const wd=['日','一','二','三','四','五','六'][syncDate.getUTCDay()];
+    let main='';
+    if(p.date===today)main=`今天 ${p.time}`;
+    else if(dayDiff===1)main=`昨天 ${p.time}`;
+    else if(p.year===now.year)main=`${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')}（${wd}） ${p.time}`;
+    else main=`${p.year}/${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')}（${wd}） ${p.time}`;
+    const diffMs=Date.now()-p.ms;let age='';
+    if(diffMs>=0&&diffMs<60*1000)age='剛剛更新';
+    else if(diffMs>=0&&diffMs<60*60*1000)age=`約 ${Math.max(1,Math.floor(diffMs/60000))} 分鐘前`;
+    else if(diffMs>=0&&diffMs<24*60*60*1000)age=`約 ${Math.floor(diffMs/3600000)} 小時前`;
+    else if(diffMs>=0&&diffMs<7*24*60*60*1000)age=`約 ${Math.floor(diffMs/86400000)} 天前`;
+    return {main,age,full:`${p.year}/${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')} ${p.time}`};
+  }
+  function setPortalSyncSuccess(value){
+    const el=$('portalSyncText');if(!el)return;const t=syncTimeDisplay(value);
+    el.innerHTML=`<span class="portal-sync-main"><span class="portal-sync-label">最後同步</span><b class="portal-sync-time">${esc(t.main)}</b>${t.age?`<span class="portal-sync-age">${esc(t.age)}</span>`:''}</span><span class="portal-sync-hint">主管若剛修改資料，會在下一次同步後更新。</span>`;
+    if(t.full)el.title=`資料時間：${t.full}（台灣時間）`;
+  }
+  function setPortalSyncMessage(message,mode=''){
+    const el=$('portalSyncText');if(!el)return;el.title='';el.innerHTML=`<span class="portal-sync-message ${esc(mode)}">${esc(message)}</span>`;
+  }
   async function loadPortalData(){
     if(!state.token||state.portalBusy)return;state.portalBusy=true;
     if($('portalStatusBadge'))$('portalStatusBadge').textContent='同步中';
     try{
       const d=await postBridge('portalData',{sessionToken:state.token},15000);state.portal=d.portal||{};renderPortalData();
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='已同步';
-      if($('portalSyncText'))$('portalSyncText').textContent=`資料時間 ${state.portal.updatedAt||d.serverNow||'—'}｜若主管剛修改資料，請等主系統下一次同步。`;
+      setPortalSyncSuccess(state.portal.updatedAt||d.serverNow||'');
     }catch(e){
       const msg=String(e?.message||e||'');
       if(/登入已逾時|重新登入|Session.*失效/i.test(msg)){
@@ -255,7 +295,7 @@
         status($('loginStatus'),'登入狀態已失效，請重新輸入員工編號與 PIN。','error');
       }
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='待同步';
-      if($('portalSyncText'))$('portalSyncText').textContent='員工自助資料尚未同步完成：'+msg;
+      setPortalSyncMessage('員工自助資料尚未同步完成：'+msg,'error');
     }finally{state.portalBusy=false;}
   }
   function renderPortalData(){
@@ -270,7 +310,7 @@
     if($('homePendingRequests'))$('homePendingRequests').textContent=String((p.requests||[]).filter(x=>requestIsPendingStatus(x.status)).length)+' 筆';
     if($('homeAnnualLeave'))$('homeAnnualLeave').textContent=annual.remainingDays===null||annual.remainingDays===undefined?'—':fmtNum(annual.remainingDays)+' 日';
     const todaySchedule=(p.schedule?.rows||[]).find(x=>String(x.date||'')===today);
-    if($('homeScheduleStatus'))$('homeScheduleStatus').textContent=todaySchedule?(todaySchedule.shiftName||todaySchedule.dayType||todaySchedule.status||'已排班'):'未發布';
+    if($('homeScheduleStatus'))$('homeScheduleStatus').textContent=todaySchedule?scheduleShiftDisplay(todaySchedule):'未發布';
     const openTasks=summary.openWorkTasks??(p.workTasks||[]).filter(x=>!x.supervisorConfirmed&&!['submitted','confirmed'].includes(String(x.report?.reportStatus||''))).length;
     if($('homeWorkTasks'))$('homeWorkTasks').textContent=String(openTasks)+' 項';
     const payMonths=p.payroll?.availableMonths||[];if($('homePayslipMonths'))$('homePayslipMonths').textContent=payMonths.length?String(payMonths.length)+' 個月':'尚無';
@@ -443,6 +483,7 @@
   function monthShift(value,delta){
     const m=/^(\d{4})-(\d{2})$/.exec(String(value||''));const base=m?new Date(Number(m[1]),Number(m[2])-1,1):new Date();base.setMonth(base.getMonth()+delta);return `${base.getFullYear()}-${String(base.getMonth()+1).padStart(2,'0')}`;
   }
+  function cleanShiftName(name){return String(name||'').replace(/\s*\d{1,2}:\d{2}\s*[-–—~～]\s*\d{1,2}:\d{2}\s*$/,'').trim();}
   function scheduleDayLabel(row){
     if(!row)return '';
     const raw=String(row.dayType||row.status||'').trim();
@@ -451,7 +492,14 @@
     if(/例假/.test(raw))return '例假';
     if(/休息日/.test(raw))return '休息日';
     if(/輪休/.test(raw))return '輪休';
-    return String(row.shiftName||row.dayType||row.status||'已排班');
+    return cleanShiftName(row.shiftName||row.dayType||row.status||'已排班');
+  }
+  function scheduleShiftDisplay(row){
+    if(!row)return '未發布';
+    const kind=scheduleDayKind(row),label=scheduleDayLabel(row)||'已排班';
+    if(kind!=='work')return label;
+    const start=String(row.startTime||row.start||'').slice(0,5),end=String(row.endTime||row.end||'').slice(0,5);
+    return start||end?`${label} ${start||'—'}–${end||'—'}`:label;
   }
   function scheduleDayKind(row){const raw=String((row?.dayType||'')+' '+(row?.status||'')+' '+(row?.shiftName||''));if(/特別休假|特休|請假/.test(raw))return'leave';if(/例假|休息日|輪休/.test(raw))return'rest';return row?'work':'none';}
   function scheduleDayMarker(kind,label){if(kind==='rest')return '<i class="schedule-day-marker rest">休</i>';if(kind==='leave')return '<i class="schedule-day-marker leave">假</i>';if(kind==='work')return '<i class="schedule-day-marker work">工</i>';return '';}
@@ -469,7 +517,7 @@
     }
     cal.innerHTML=cells.join('');cal.querySelectorAll('[data-schedule-date]').forEach(b=>b.addEventListener('click',()=>{state.scheduleSelectedDate=b.dataset.scheduleDate;renderSchedule();}));
     let selected=state.scheduleSelectedDate&&state.scheduleSelectedDate.slice(0,7)===month?state.scheduleSelectedDate:'';if(!selected){selected=byDate.has(today)?today:(rows[0]?.date||'');state.scheduleSelectedDate=selected;}
-    const row=byDate.get(selected);if(detail){if(!selected)detail.innerHTML='<p class="muted">這個月份沒有主系統發布的個人班表。</p>';else if(!row)detail.innerHTML=`<b>${esc(selected)}</b><p class="muted">當日主系統沒有發布個人班表。</p>`;else{const start=row.startTime||row.start||'',end=row.endTime||row.end||'',kind=scheduleDayKind(row);detail.innerHTML=`<div class="schedule-detail-title ${kind}"><b>${esc(selected)}｜${esc(scheduleDayLabel(row))}</b><span>${kind==='rest'?'休假日':kind==='leave'?'核准休假':'工作日'}</span></div><div class="schedule-detail-grid"><span>班別<strong>${kind==='work'?esc(row.shiftName||row.shiftId||'—'):'—'}</strong></span><span>時間<strong>${kind==='work'?`${esc(start||'—')} ～ ${esc(end||'—')}`:'本日不排正常工時'}</strong></span><span>休息<strong>${kind==='work'?(row.breakMins===undefined?'—':esc(row.breakMins)+' 分'):'—'}</strong></span><span>狀態<strong>${esc(row.status||row.calendarWriteStatus||'已發布')}</strong></span></div>${row.note?`<p>${esc(row.note)}</p>`:''}${rosterRowIsRest(row)&&selected>=portalDate()?`<button class="ghost schedule-adjust-shortcut" type="button" onclick="selectRosterChangeFrom('${esc(selected)}')">申請調整這個休假日</button>`:''}`;}}renderRosterChangeOptions();
+    const row=byDate.get(selected);if(detail){if(!selected)detail.innerHTML='<p class="muted">這個月份沒有主系統發布的個人班表。</p>';else if(!row)detail.innerHTML=`<b>${esc(selected)}</b><p class="muted">當日主系統沒有發布個人班表。</p>`;else{const start=row.startTime||row.start||'',end=row.endTime||row.end||'',kind=scheduleDayKind(row);detail.innerHTML=`<div class="schedule-detail-title ${kind}"><b>${esc(selected)}｜${esc(scheduleDayLabel(row))}</b><span>${kind==='rest'?'休假日':kind==='leave'?'核准休假':'工作日'}</span></div><div class="schedule-detail-grid"><span>班別<strong>${kind==='work'?esc(cleanShiftName(row.shiftName||row.shiftId||'—')):'—'}</strong></span><span>時間<strong>${kind==='work'?`${esc(start||'—')} ～ ${esc(end||'—')}`:'本日不排正常工時'}</strong></span><span>休息<strong>${kind==='work'?(row.breakMins===undefined?'—':esc(row.breakMins)+' 分'):'—'}</strong></span><span>狀態<strong>${esc(row.status||row.calendarWriteStatus||'已發布')}</strong></span></div>${row.note?`<p>${esc(row.note)}</p>`:''}${rosterRowIsRest(row)&&selected>=portalDate()?`<button class="ghost schedule-adjust-shortcut" type="button" onclick="selectRosterChangeFrom('${esc(selected)}')">申請調整這個休假日</button>`:''}`;}}renderRosterChangeOptions();
   }
   function workPlanOwnDepartment(){return String(state.portal?.profile?.department||state.employee?.department||'').trim();}
   function workPlanRows(){const rows=Array.isArray(state.portal?.departmentWorkPlan?.rows)?state.portal.departmentWorkPlan.rows:[];return rows.map(r=>({date:r.date??r.d??'',department:r.department??r.p??'',departmentName:r.departmentName??r.n??'',title:r.title??r.t??'',batchCode:r.batchCode??r.b??'',category:r.category??r.c??'',importance:r.importance??r.i??'major',loadLabel:r.loadLabel??r.l??''}));}
@@ -512,9 +560,16 @@
     const sel=$('payrollMonth');if(!sel)return;const rows=state.portal?.payroll?.availableMonths||[],old=sel.value;sel.innerHTML=rows.length?rows.map(x=>`<option value="${esc(x.month)}">${esc(x.month)}${x.lockedAt?'｜已鎖定':''}</option>`).join(''):'<option value="">目前沒有已發布薪資單</option>';if(old&&rows.some(x=>x.month===old))sel.value=old;if($('loadPayslipBtn'))$('loadPayslipBtn').disabled=!rows.length;if($('homePayslipMonths'))$('homePayslipMonths').textContent=rows.length?`${rows.length} 個月`:'尚無';
   }
   function money(v){const n=Number(v);return Number.isFinite(n)?`NT$ ${Math.round(n).toLocaleString('zh-TW')}`:'—';}
+  function payrollCalcMoney(n){const v=Math.round((Number(n||0)+Number.EPSILON)*100)/100;return `NT$ ${v.toLocaleString('zh-TW',{minimumFractionDigits:Number.isInteger(v)?0:2,maximumFractionDigits:2})}`;}
+  function payrollCalcNum(n){const v=Math.round((Number(n||0)+Number.EPSILON)*100)/100;return Number.isInteger(v)?String(v):v.toFixed(2).replace(/0+$/,'').replace(/\.$/,'');}
   function renderPayslip(s){
-    state.payslip=s;const panel=$('payslipPanel');if(!panel)return;panel.hidden=false;$('payslipTitle').textContent=`${s.month||''} 正式薪資單`;$('payslipMeta').textContent=`${s.employeeName||s.empName||state.employee?.name||''}｜${s.dept||state.employee?.department||''}｜月結鎖定 ${s.lockedAt||'—'}`;$('payslipNet').innerHTML=`<small>實發薪資</small><b>${money(s.net)}</b>`;
-    const fields=[['本薪',money(s.basePay)],['正常工時',`${fmtNum(s.normalHours)} 小時`],['加班工時',`${fmtNum(s.overtimeHours)} 小時`],['加班費',money(s.overtimePay)],['津貼',money(s.allowance)],['全勤／獎金',money(s.fullBonus)],['請假時數',`${fmtNum(s.leaveHours)} 小時`],['請假扣款',money(s.leaveDeduction)],['保險／提繳扣款',money(s.insuranceDeduction)],['其他調整',money(s.correctionTotal)],['應發合計',money(s.gross)],['扣款合計',money(s.deductions)]];$('payslipGrid').innerHTML=fields.map(([k,v])=>`<div class="payslip-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');panel.scrollIntoView({behavior:'smooth',block:'start'});
+    state.payslip=s;const panel=$('payslipPanel');if(!panel)return;panel.hidden=false;$('payslipTitle').textContent=`${s.month||''} 正式薪資單`;$('payslipMeta').textContent=`${s.employeeName||s.empName||state.employee?.name||''}｜${s.dept||state.employee?.department||''}｜月結鎖定 ${formatPortalDateTime(s.lockedAt)||'—'}`;$('payslipNet').innerHTML=`<small>實發薪資</small><b>${money(s.net)}</b>`;
+    const fields=[['本薪／基本工資',money(s.basePay)],['正常工時',`${fmtNum(s.normalHours)} 小時`],['核准加班',`${fmtNum(s.overtimeHours)} 小時`],['加班／休假日出勤費',money(s.overtimePay)],['固定職務／夜班津貼',money(s.allowance)],['請假時數',`${fmtNum(s.leaveHours)} 小時`],['請假扣款',money(s.leaveDeduction)],['曠職扣款',money(s.absenceDeduction)],['保險／勞退自提',money(s.insuranceDeduction)],['其他調整',money(s.correctionTotal)],['應發小計',money(s.gross)],['扣款小計',money(s.deductions)]];if(Number(s.fullBonus||0)!==0)fields.splice(5,0,['舊制全勤獎金（歷史）',money(s.fullBonus)]);$('payslipGrid').innerHTML=fields.map(([k,v])=>`<div class="payslip-item"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('');
+    const calc=s.salaryCalculation&&typeof s.salaryCalculation==='object'?s.salaryCalculation:{};const basis=s.hourlyRateFormula||calc.hourlyRateFormula||(s.hourlyRate?`平日每小時工資額 ${payrollCalcMoney(s.hourlyRate)}／小時`:'舊版薪資單未保存時薪公式');
+    if($('payslipCalcBasis')){const comps=Array.isArray(s.regularWageComponents)?s.regularWageComponents:(Array.isArray(calc.regularWageComponents)?calc.regularWageComponents:[]),compHtml=comps.length?`<div class="pay-calc-components">${comps.map(c=>`<span class="${c.included?'included':'excluded'}">${esc(c.label||c.key||'工資項目')} ${money(c.amount)}｜${c.included?'納入':'不納入'}</span>`).join('')}</div>`:'';$('payslipCalcBasis').innerHTML=`<div class="pay-calc-basis"><span>平日每小時工資額／加班計算基礎</span><b>${esc(basis)}</b>${compHtml}<small>${esc(s.calculationVersion||'舊版鎖定快照')}</small></div>`;}
+    if($('payslipSalaryFormula'))$('payslipSalaryFormula').innerHTML=`<div class="pay-formula-row"><span>應發</span><b>${esc(calc.grossFormula||`應發小計 = ${payrollCalcMoney(s.gross)}`)}</b></div><div class="pay-formula-row"><span>扣款</span><b>${esc(calc.deductionFormula||`扣款小計 = ${payrollCalcMoney(s.deductions)}`)}</b></div><div class="pay-formula-row net"><span>實發</span><b>${esc(calc.netFormula||`實發 = ${payrollCalcMoney(s.net)}`)}</b></div><div class="pay-rounding-note"><b>金額取整</b><span>${esc(s.roundingRule||calc.roundingRule||'薪資單金額以新臺幣元為單位四捨五入。')}</span></div>`;
+    const items=Array.isArray(s.overtimeBreakdown)?s.overtimeBreakdown:[];const host=$('payslipOvertimeBreakdown');if(host){if(items.length){host.innerHTML=items.map(item=>`<article class="employee-ot-calc"><header><div><b>${esc(formatPortalDate(item.date)||item.date||'')}｜${esc(item.type||item.category||'加班')}</b><small>${item.start||item.end?`${esc(item.start||'')}–${esc(item.end||'')}｜`:''}實際 ${esc(payrollCalcNum(item.actualHours))} 小時${item.reason?`｜${esc(item.reason)}`:''}</small></div><strong>${esc(payrollCalcMoney(item.amount))}</strong></header><div>${(Array.isArray(item.segments)?item.segments:[]).map(seg=>`<div class="employee-ot-segment"><div><b>${esc(seg.label||'計算')}</b><code>${esc(seg.formula||'')}</code>${seg.note?`<small>${esc(seg.note)}</small>`:''}</div><strong>${esc(payrollCalcMoney(seg.amount))}</strong></div>`).join('')}</div></article>`).join('');}else if(Number(s.overtimePay||0)>0){host.innerHTML='<div class="pay-calc-empty warn"><b>這是舊版鎖定薪資單</b><span>有加班費，但當時尚未保存逐筆公式。為避免歷史金額被重新計算，請向主管查閱原加班單。</span></div>';}else{host.innerHTML='<div class="pay-calc-empty"><b>本月沒有計薪的核准加班／休假日出勤。</b></div>';}}
+    panel.scrollIntoView({behavior:'smooth',block:'start'});
   }
   async function loadPayslip(){
     const month=$('payrollMonth')?.value||'',pin=$('payrollPin')?.value.trim()||'';if(!month){status($('payrollStatus'),'目前沒有可查詢的正式薪資單。','error');return;}if(!/^\d{6}$/.test(pin)){status($('payrollStatus'),'請再次輸入本人 6 位 PIN。','error');return;}

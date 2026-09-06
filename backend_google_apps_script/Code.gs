@@ -1,5 +1,5 @@
 /**
- * W435 FIX371 CLEAN｜王泰山畜牧場員工自助中心｜請假編輯、撤回與取消申請
+ * W441 FIX377 CLEAN｜王泰山畜牧場員工自助中心｜固定工資基礎與薪資逐筆公式橋接
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W435_FIX371_CLEAN';
+const BRIDGE_VERSION = 'W441_FIX377_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -717,6 +717,20 @@ function syncPortalRequestStatuses_(rawJson) {
 }
 
 
+function payrollCalcText_(v, maxLen) { return String(v===undefined||v===null?'':v).slice(0, maxLen||240); }
+function payrollCalcNum_(v) { const n=Number(v||0); return isFinite(n)?n:0; }
+function safePayrollSegments_(segments) {
+  return (Array.isArray(segments)?segments:[]).slice(0,6).map(function(s){return {label:payrollCalcText_(s&&s.label,100),hours:payrollCalcNum_(s&&s.hours),basisHours:payrollCalcNum_(s&&s.basisHours),multiplier:payrollCalcNum_(s&&s.multiplier),rate:payrollCalcNum_(s&&s.rate),amount:payrollCalcNum_(s&&s.amount),formula:payrollCalcText_(s&&s.formula,180),note:payrollCalcText_(s&&s.note,220)};});
+}
+function safeOvertimeBreakdown_(rows) {
+  return (Array.isArray(rows)?rows:[]).slice(0,80).map(function(x){return {date:payrollCalcText_(x&&x.date,10),requestId:payrollCalcText_(x&&x.requestId,80),type:payrollCalcText_(x&&x.type,60),category:payrollCalcText_(x&&x.category,60),start:payrollCalcText_(x&&x.start,8),end:payrollCalcText_(x&&x.end,8),actualHours:payrollCalcNum_(x&&x.actualHours),amount:payrollCalcNum_(x&&x.amount),reason:payrollCalcText_(x&&x.reason,120),note:payrollCalcText_(x&&x.note,220),segments:safePayrollSegments_(x&&x.segments),calculationVersion:payrollCalcText_(x&&x.calculationVersion,40)};});
+}
+function safeSalaryCalculation_(c) {
+  c=(c&&typeof c==='object')?c:{};
+  function lines(v){return (Array.isArray(v)?v:[]).slice(0,20).map(function(x){return {label:payrollCalcText_(x&&x.label,80),amount:payrollCalcNum_(x&&x.amount)};});}
+  return {calculationVersion:payrollCalcText_(c.calculationVersion,40),hourlyRate:payrollCalcNum_(c.hourlyRate),hourlyRateFormula:payrollCalcText_(c.hourlyRateFormula,260),regularWageBasisAmount:payrollCalcNum_(c.regularWageBasisAmount),regularWageComponents:(Array.isArray(c.regularWageComponents)?c.regularWageComponents:[]).slice(0,8).map(function(v){return {key:payrollCalcText_(v&&v.key,60),label:payrollCalcText_(v&&v.label,80),amount:payrollCalcNum_(v&&v.amount),included:v&&v.included!==false};}),roundingRule:payrollCalcText_(c.roundingRule,300),earnings:lines(c.earnings),deductions:lines(c.deductions),correctionTotal:payrollCalcNum_(c.correctionTotal),gross:payrollCalcNum_(c.gross),deductionsTotal:payrollCalcNum_(c.deductionsTotal),net:payrollCalcNum_(c.net),grossFormula:payrollCalcText_(c.grossFormula,500),deductionFormula:payrollCalcText_(c.deductionFormula,500),netFormula:payrollCalcText_(c.netFormula,500)};
+}
+
 function syncPortalPayslips_(rawJson) {
   let rows=[];try{rows=JSON.parse(rawJson||'[]');}catch(_e){return {ok:false,message:'payslipsJson 不是有效 JSON'};}
   if(!Array.isArray(rows))return {ok:false,message:'payslipsJson 必須是陣列'};
@@ -730,9 +744,10 @@ function syncPortalPayslips_(rawJson) {
     const key=employeeId+'__'+month;if(seen[key])return;seen[key]=true;
     const safe={
       employeeId:employeeId,month:month,empName:String(x.empName||x.employeeName||''),dept:String(x.dept||''),shiftName:String(x.shiftName||''),payType:String(x.payType||''),
-      basePay:Number(x.basePay||0),normalHours:Number(x.normalHours||0),overtimeHours:Number(x.overtimeHours||0),overtimePay:Number(x.overtimePay||0),allowance:Number(x.allowance||0),fullBonus:Number(x.fullBonus||0),
-      leaveHours:Number(x.leaveHours||0),leaveDeduction:Number(x.leaveDeduction||0),laborInsuranceEmployee:Number(x.laborInsuranceEmployee||0),nhiEmployee:Number(x.nhiEmployee||0),pensionEmployee:Number(x.pensionEmployee||0),insuranceDeduction:Number(x.insuranceDeduction||0),
-      correctionTotal:Number(x.correctionTotal||0),gross:Number(x.gross||0),deductions:Number(x.deductions||0),net:Number(x.net||0),warnings:Array.isArray(x.warnings)?x.warnings.slice(0,20):[],generatedAt:String(x.generatedAt||''),lockedAt:String(x.lockedAt||''),source:'locked-payroll'
+      basePay:Number(x.basePay||0),normalHours:Number(x.normalHours||0),overtimeHours:Number(x.overtimeHours||0),overtimePay:Number(x.overtimePay||0),hourlyRate:Number(x.hourlyRate||0),hourlyRateFormula:payrollCalcText_(x.hourlyRateFormula,260),regularWageBasisAmount:payrollCalcNum_(x.regularWageBasisAmount),regularWageComponents:(Array.isArray(x.regularWageComponents)?x.regularWageComponents:[]).slice(0,8),roundingRule:payrollCalcText_(x.roundingRule,300),
+      overtimeBreakdown:safeOvertimeBreakdown_(x.overtimeBreakdown),overtimeCategoryTotals:Array.isArray(x.overtimeCategoryTotals)?x.overtimeCategoryTotals.slice(0,12):[],salaryCalculation:safeSalaryCalculation_(x.salaryCalculation),calculationVersion:payrollCalcText_(x.calculationVersion,40),allowance:Number(x.allowance||0),fullBonus:Number(x.fullBonus||0),
+      leaveHours:Number(x.leaveHours||0),leaveDeduction:Number(x.leaveDeduction||0),absenceDeduction:Number(x.absenceDeduction||0),laborInsuranceEmployee:Number(x.laborInsuranceEmployee||0),nhiEmployee:Number(x.nhiEmployee||0),pensionEmployee:Number(x.pensionEmployee||0),insuranceDeduction:Number(x.insuranceDeduction||0),
+      correctionTotal:Number(x.correctionTotal||0),gross:Number(x.gross||0),deductions:Number(x.deductions||0),net:Number(x.net||0),warnings:Array.isArray(x.warnings)?x.warnings.slice(0,20).map(function(v){return payrollCalcText_(v,240);}):[],generatedAt:String(x.generatedAt||''),lockedAt:String(x.lockedAt||''),source:'locked-payroll'
     };
     values.push([employeeId,month,JSON.stringify(safe),String(x.lockedAt||x.generatedAt||now)]);
   });

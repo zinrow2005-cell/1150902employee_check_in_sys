@@ -1,8 +1,8 @@
-# W435 FIX371｜正式部署
+# W441 FIX377｜正式部署
 
-1. 將本資料夾全部檔案覆蓋 GitHub repository 根目錄。
-2. 將 `backend_google_apps_script/Code.gs` 完整覆蓋 Apps Script，儲存並建立新的 Web App 部署版本。
-3. 正式 `/exec` 網址若沿用既有部署，不需修改 `config.js`。
-4. 重新開啟員工端，確認右上角顯示 `W435 FIX371`。
-5. 測試：新送一筆請假 → 編輯 → 撤回；另以已核准請假測試「申請取消請假」。
-6. 單機主系統需同步升級到 W435 FIX371，才會處理撤回與取消請假。
+1. 將本 ZIP 解壓後全部內容覆蓋 GitHub repository 根目錄。
+2. 到 Google Apps Script，把 `backend_google_apps_script/Code.gs` 全部取代目前程式。
+3. 儲存後在「部署 → 管理部署作業」建立新版本；沿用原部署項目時 `/exec` 網址可保持不變。
+4. GitHub Pages 部署完成後，iPhone / iPad 關閉員工端再重開；登入頁應顯示 `W441 FIX377`。
+5. 主系統同步升級 W441 FIX377。
+6. 舊鎖定薪資單維持歷史快照；新鎖定薪資單使用固定工資基礎與新的取整說明。
