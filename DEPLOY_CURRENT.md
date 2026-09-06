@@ -1,9 +1,8 @@
-# W433 FIX369｜正式部署
+# W435 FIX371｜正式部署
 
-1. GitHub repository 根目錄以本包全部檔案覆蓋。
-2. 等待 GitHub Pages 更新。
-3. 重新開啟員工端，確認右上角顯示 `W433 FIX369`。
-4. iPhone 若仍看到舊版，關閉 PWA／Safari 後重開；必要時移除舊主畫面捷徑再重新加入。
-
-本包沒有 SYNC_KEY、員工 PIN 或主系統正式資料。
-Apps Script API 本次沒有變更，不需為 CLEAN R1 重新部署 Code.gs。
+1. 將本資料夾全部檔案覆蓋 GitHub repository 根目錄。
+2. 將 `backend_google_apps_script/Code.gs` 完整覆蓋 Apps Script，儲存並建立新的 Web App 部署版本。
+3. 正式 `/exec` 網址若沿用既有部署，不需修改 `config.js`。
+4. 重新開啟員工端，確認右上角顯示 `W435 FIX371`。
+5. 測試：新送一筆請假 → 編輯 → 撤回；另以已核准請假測試「申請取消請假」。
+6. 單機主系統需同步升級到 W435 FIX371，才會處理撤回與取消請假。

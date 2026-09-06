@@ -1,5 +1,5 @@
 /**
- * W432 FIX368 CLEAN｜王泰山畜牧場員工自助中心｜15 天登入＋最廣相機
+ * W435 FIX371 CLEAN｜王泰山畜牧場員工自助中心｜請假編輯、撤回與取消申請
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W433_FIX369_CLEAN';
+const BRIDGE_VERSION = 'W435_FIX371_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -227,6 +227,9 @@ function doPost(e) {
     if (action === 'portalData') return bridgeHtml_(Object.assign({requestId:requestId}, portalData_(p)));
     if (action === 'portalPayslip') return bridgeHtml_(Object.assign({requestId:requestId}, portalPayslip_(p)));
     if (action === 'portalRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalRequest_(p)));
+    if (action === 'portalUpdateRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalUpdateRequest_(p)));
+    if (action === 'portalWithdrawRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalWithdrawRequest_(p)));
+    if (action === 'portalCancelLeaveRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalCancelLeaveRequest_(p)));
     if (action === 'punch') return bridgeHtml_(Object.assign({requestId:requestId}, punch_(p)));
     return bridgeHtml_({ok:false, requestId:requestId, message:'未知 action'});
   } catch (err) {
@@ -416,16 +419,42 @@ function portalSnapshot_(employeeId) {
   return null;
 }
 
+function normalizePortalSheetDate_(value) {
+  if(value===null||value===undefined||value==='')return '';
+  if(Object.prototype.toString.call(value)==='[object Date]'&&!isNaN(value.getTime()))return Utilities.formatDate(value,TAIPEI_TZ,'yyyy-MM-dd');
+  const raw=String(value).trim();
+  const iso=/^(\d{4}-\d{2}-\d{2})/.exec(raw);if(iso)return iso[1];
+  const parsed=new Date(raw);
+  if(!isNaN(parsed.getTime()))return Utilities.formatDate(parsed,TAIPEI_TZ,'yyyy-MM-dd');
+  return raw;
+}
+
+function normalizePortalSheetDateTime_(value) {
+  if(value===null||value===undefined||value==='')return '';
+  if(Object.prototype.toString.call(value)==='[object Date]'&&!isNaN(value.getTime()))return Utilities.formatDate(value,TAIPEI_TZ,"yyyy-MM-dd'T'HH:mm:ssXXX");
+  const raw=String(value).trim();
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw))return raw;
+  const parsed=new Date(raw);
+  if(!isNaN(parsed.getTime()))return Utilities.formatDate(parsed,TAIPEI_TZ,"yyyy-MM-dd'T'HH:mm:ssXXX");
+  return raw;
+}
+
 function portalRequestRows_() {
   const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS);
   const values=sheet.getDataRange().getValues();
   if(values.length<=1)return [];
   const headers=values[0].map(String);
-  return values.slice(1).map(function(row,index){const o={_row:index+2};headers.forEach(function(h,i){o[h]=row[i];});try{o.payload=JSON.parse(String(o.payloadJson||'{}'));}catch(_e){o.payload={};}return o;});
+  return values.slice(1).map(function(row,index){
+    const o={_row:index+2};headers.forEach(function(h,i){o[h]=row[i];});
+    o.date=normalizePortalSheetDate_(o.date);
+    o.createdAt=normalizePortalSheetDateTime_(o.createdAt);o.updatedAt=normalizePortalSheetDateTime_(o.updatedAt);o.serverCreatedAt=normalizePortalSheetDateTime_(o.serverCreatedAt);
+    try{o.payload=JSON.parse(String(o.payloadJson||'{}'));}catch(_e){o.payload={};}
+    return o;
+  });
 }
 
 function portalRequestsForEmployee_(employeeId) {
-  return portalRequestRows_().filter(function(x){return employeeIdEqual_(x.employeeId, employeeId);}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80).map(function(x){return {requestId:String(x.requestId||''),requestKind:String(x.requestKind||''),date:String(x.date||''),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:String(x.createdAt||''),updatedAt:String(x.updatedAt||'')};});
+  return portalRequestRows_().filter(function(x){return employeeIdEqual_(x.employeeId, employeeId);}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80).map(function(x){return {requestId:String(x.requestId||''),requestKind:String(x.requestKind||''),date:normalizePortalSheetDate_(x.date),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:normalizePortalSheetDateTime_(x.createdAt),updatedAt:normalizePortalSheetDateTime_(x.updatedAt)};});
 }
 
 function punchTimeMinutes_(value) {
@@ -565,6 +594,93 @@ function validatePortalPayload_(payload){
   return '';
 }
 
+function portalRequestOpenStatus_(status) {
+  return ['待審核','待確認','文件待補','協商調整中'].indexOf(String(status||''))>=0;
+}
+
+function portalRequestFinalLeaveStatus_(status) {
+  return ['已核准','已成立','已排定'].indexOf(String(status||''))>=0;
+}
+
+function portalEmployeeRequestRow_(employeeId, requestId) {
+  const id=String(requestId||'').trim();if(!id)return null;
+  return portalRequestRows_().find(function(x){return String(x.requestId||'')===id&&employeeIdEqual_(x.employeeId,employeeId);})||null;
+}
+
+function portalNewRequestId_(kind, employeeId) {
+  return 'PORTAL-'+String(kind||'request').toUpperCase()+'-'+String(employeeId||'EMP')+'-'+Utilities.getUuid().replace(/-/g,'').slice(0,16);
+}
+
+function portalAppendRequestRow_(sheet, employee, kind, date, payload, status, nowIso) {
+  const requestId=String(payload.requestId||portalNewRequestId_(kind,employee.id));payload.requestId=requestId;
+  const row={requestId:requestId,employeeId:String(employee.id||''),employeeName:String(employee.name||employee.id||''),requestKind:kind,date:String(date||''),payloadJson:JSON.stringify(payload),status:String(status||'待同步至主系統'),reviewNote:'',createdAt:nowIso,updatedAt:nowIso,serverCreatedAt:nowIso};
+  sheet.appendRow(PORTAL_REQUEST_HEADERS.map(function(h){return row[h]===undefined?'':row[h];}));
+  return row;
+}
+
+function portalUpdateRequest_(p) {
+  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
+  const targetId=String(p.targetRequestId||p.requestIdToEdit||'').trim();if(!targetId)return {ok:false,message:'缺少要修改的申請編號'};
+  let payload={};try{payload=JSON.parse(String(p.payloadJson||'{}'));}catch(_e){return {ok:false,message:'申請資料格式不正確'};}
+  payload.requestKind='leave';const validationError=validatePortalPayload_(payload);if(validationError)return {ok:false,message:validationError};
+  const lock=LockService.getScriptLock();if(!lock.tryLock(8000))return {ok:false,message:'目前多人同時修改申請，請稍後再試'};
+  try{
+    const row=portalEmployeeRequestRow_(employee.id,targetId);if(!row)return {ok:false,message:'找不到這筆請假申請，請先重新整理'};
+    if(String(row.requestKind||row.payload?.requestKind||'')!=='leave')return {ok:false,message:'目前只有請假申請支援員工自行修改'};
+    const currentStatus=String(row.status||''),editable=['待同步至主系統','待審核','待確認','文件待補','協商調整中','已駁回','同步失敗'];
+    if(editable.indexOf(currentStatus)<0)return {ok:false,message:portalRequestFinalLeaveStatus_(currentStatus)?'這筆請假已核准，不能直接修改；請改用「申請取消請假」':'這筆請假目前不能直接修改'};
+    const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS),nowIso=isoNow_(),date=String(payload.date||payload.startDate||'').trim();
+    const oldPayload=row.payload&&typeof row.payload==='object'?row.payload:{};payload.editCount=Number(oldPayload.editCount||0)+1;payload.lastEmployeeEditAt=nowIso;
+    if(currentStatus==='待同步至主系統'){
+      payload.requestId=targetId;
+      sheet.getRange(row._row,5).setValue(date);sheet.getRange(row._row,6).setValue(JSON.stringify(payload));sheet.getRange(row._row,10).setValue(nowIso);
+      return {ok:true,message:'請假內容已更新；這筆尚未同步到主系統，因此直接更新原申請',request:{requestId:targetId,requestKind:'leave',date:date,payload:payload,status:currentStatus,updatedAt:nowIso}};
+    }
+    if(portalRequestOpenStatus_(currentStatus)){
+      sheet.getRange(row._row,7).setValue('待同步撤回');sheet.getRange(row._row,10).setValue(nowIso);
+    }
+    const newId=portalNewRequestId_('leave',employee.id);payload.requestId=newId;payload.replacesRequestId=targetId;payload.revisionOf=String(oldPayload.revisionOf||targetId);payload.revisionNumber=Math.max(2,Number(oldPayload.revisionNumber||1)+1);payload.previousRequestStatus=currentStatus;
+    const newRow=portalAppendRequestRow_(sheet,employee,'leave',date,payload,'待同步至主系統',nowIso);
+    return {ok:true,message:portalRequestOpenStatus_(currentStatus)?'修改內容已重新送出；原待審申請會由主系統撤回，新內容重新送審':'已依原申請建立新版請假，重新送交主系統審核',request:{requestId:newId,requestKind:'leave',date:date,payload:payload,status:newRow.status,createdAt:nowIso,updatedAt:nowIso},replacesRequestId:targetId};
+  }finally{lock.releaseLock();}
+}
+
+function portalWithdrawRequest_(p) {
+  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
+  const targetId=String(p.targetRequestId||'').trim();if(!targetId)return {ok:false,message:'缺少要撤回的申請編號'};
+  const lock=LockService.getScriptLock();if(!lock.tryLock(8000))return {ok:false,message:'目前多人同時處理申請，請稍後再試'};
+  try{
+    const row=portalEmployeeRequestRow_(employee.id,targetId);if(!row)return {ok:false,message:'找不到這筆申請，請先重新整理'};
+    if(String(row.requestKind||row.payload?.requestKind||'')!=='leave')return {ok:false,message:'目前只有請假申請支援員工自行撤回'};
+    const currentStatus=String(row.status||''),sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS),nowIso=isoNow_();
+    if(currentStatus==='待同步撤回')return {ok:true,message:'這筆請假已提出撤回，等待主系統同步確認'};
+    if(portalRequestFinalLeaveStatus_(currentStatus))return {ok:false,message:'這筆請假已核准，不能直接撤回；請使用「申請取消請假」'};
+    if(['已撤回','已取消','已駁回'].indexOf(currentStatus)>=0)return {ok:false,message:'這筆申請已經結束，不需要再次撤回'};
+    const payload=row.payload&&typeof row.payload==='object'?Object.assign({},row.payload):{};payload.employeeWithdrawRequestedAt=nowIso;payload.employeeWithdrawFromStatus=currentStatus;
+    const nextStatus=portalRequestOpenStatus_(currentStatus)?'待同步撤回':'已撤回';
+    sheet.getRange(row._row,6).setValue(JSON.stringify(payload));sheet.getRange(row._row,7).setValue(nextStatus);sheet.getRange(row._row,10).setValue(nowIso);
+    if(nextStatus==='已撤回')sheet.getRange(row._row,8).setValue('員工於主系統審核前主動撤回');
+    return {ok:true,message:nextStatus==='待同步撤回'?'撤回申請已送出；等待單機主系統同步後正式標記為已撤回':'請假申請已撤回',status:nextStatus,requestId:targetId,updatedAt:nowIso};
+  }finally{lock.releaseLock();}
+}
+
+function portalCancelLeaveRequest_(p) {
+  const employee=sessionEmployee_(p.sessionToken);if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
+  const targetId=String(p.targetRequestId||'').trim(),reason=String(p.reason||'').trim();if(!targetId)return {ok:false,message:'缺少原請假申請編號'};if(!reason)return {ok:false,message:'取消請假申請必須填寫原因'};
+  const lock=LockService.getScriptLock();if(!lock.tryLock(8000))return {ok:false,message:'目前多人同時處理申請，請稍後再試'};
+  try{
+    const rows=portalRequestRows_(),target=rows.find(function(x){return String(x.requestId||'')===targetId&&employeeIdEqual_(x.employeeId,employee.id);});if(!target)return {ok:false,message:'找不到原請假申請，請先重新整理'};
+    if(String(target.requestKind||target.payload?.requestKind||'')!=='leave')return {ok:false,message:'只有已核准請假可以提出取消請假申請'};
+    if(!portalRequestFinalLeaveStatus_(target.status))return {ok:false,message:'原請假目前不是已核准／已成立／已排定狀態，不能提出取消申請'};
+    const duplicate=rows.find(function(x){const q=x.payload&&typeof x.payload==='object'?x.payload:{};return employeeIdEqual_(x.employeeId,employee.id)&&String(x.requestKind||q.requestKind||'')==='leave_cancel'&&String(q.targetRequestId||'')===targetId&&['已駁回','已取消','已撤回','同步失敗'].indexOf(String(x.status||''))<0;});
+    if(duplicate)return {ok:false,message:'這筆請假已經有取消申請正在處理，請勿重複送出'};
+    const tp=target.payload&&typeof target.payload==='object'?target.payload:{},nowIso=isoNow_(),date=normalizePortalSheetDate_(tp.startDate||target.date),requestId=portalNewRequestId_('leave_cancel',employee.id);
+    const payload={requestKind:'leave_cancel',requestId:requestId,targetRequestId:targetId,date:date,reason:reason.slice(0,500),originalLeaveName:String(tp.leaveName||tp.leaveTypeCode||'請假'),originalStartDate:normalizePortalSheetDate_(tp.startDate||target.date),originalEndDate:normalizePortalSheetDate_(tp.endDate||tp.startDate||target.date),originalStatus:String(target.status||''),requestedAt:nowIso};
+    const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS);portalAppendRequestRow_(sheet,employee,'leave_cancel',date,payload,'待同步至主系統',nowIso);
+    return {ok:true,message:'取消請假申請已送出；主管核准取消前，原請假仍然有效',request:{requestId:requestId,requestKind:'leave_cancel',date:date,payload:payload,status:'待同步至主系統',createdAt:nowIso,updatedAt:nowIso}};
+  }finally{lock.releaseLock();}
+}
+
 function portalRequest_(p) {
   const employee=sessionEmployee_(p.sessionToken);
   if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
@@ -587,7 +703,7 @@ function portalRequest_(p) {
 }
 
 function exportPortalRequests_(since) {
-  const rows=portalRequestRows_().filter(function(x){const st=String(x.status||'');return st==='待同步至主系統'||!since||String(x.updatedAt||x.createdAt||'')>since;}).map(function(x){return {requestId:String(x.requestId||''),employeeId:String(x.employeeId||''),employeeName:String(x.employeeName||''),requestKind:String(x.requestKind||''),date:String(x.date||''),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:String(x.createdAt||''),updatedAt:String(x.updatedAt||''),serverCreatedAt:String(x.serverCreatedAt||'')};});
+  const rows=portalRequestRows_().filter(function(x){const st=String(x.status||'');return st==='待同步至主系統'||st==='待同步撤回'||!since||String(x.updatedAt||x.createdAt||'')>since;}).map(function(x){return {requestId:String(x.requestId||''),employeeId:String(x.employeeId||''),employeeName:String(x.employeeName||''),requestKind:String(x.requestKind||''),date:normalizePortalSheetDate_(x.date),payload:x.payload||{},status:String(x.status||''),reviewNote:String(x.reviewNote||''),createdAt:normalizePortalSheetDateTime_(x.createdAt),updatedAt:normalizePortalSheetDateTime_(x.updatedAt),serverCreatedAt:normalizePortalSheetDateTime_(x.serverCreatedAt)};});
   return {ok:true,requests:rows,count:rows.length,generatedAt:isoNow_()};
 }
 

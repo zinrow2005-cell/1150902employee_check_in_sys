@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W433 FIX369 FINAL STAMP | final branded attendance photo layout.
+  // W435 FIX371 | readable request dates + employee leave edit / withdraw / cancellation workflow.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -40,7 +40,7 @@
     return exp;
   }
   const persistedLogin=savedLogin();
-  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false};
+  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false,editingLeaveRequestId:'',editingLeaveSourceStatus:''};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -207,8 +207,39 @@
     return info;
   }
   function fmtNum(v,d=1){const n=Number(v);return Number.isFinite(n)?n.toFixed(d).replace(/\.0$/,''):'—';}
-  function statusClass(v){const s=String(v||'');return /核准|成立|已排定|完成/.test(s)?'status-approved':/退回|駁回|失敗|取消/.test(s)?'status-rejected':'status-pending';}
-  function requestKindName(k,p={}){return k==='preleave'?(p.preScheduleType||p.requestType||'預排休假'):k==='leave'?(p.leaveName||p.leaveTypeCode||'請假'):k==='roster_change'?'休假日期調整':k==='punch_correction'?'補卡申請':k==='overtime'?'加班申請':k==='work_completion'?'工作完成回報':k||'申請';}
+  const REQUEST_WEEKDAY_ZH=['日','一','二','三','四','五','六'];
+  function portalDateParts(value){
+    if(value===null||value===undefined||value==='')return null;
+    const raw=String(value).trim();
+    let m=/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:$|[T\s])/.exec(raw);
+    if(m)return {year:Number(m[1]),month:Number(m[2]),day:Number(m[3])};
+    const months={jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+    m=/^(?:sun|mon|tue|wed|thu|fri|sat)\s+([a-z]{3})\s+(\d{1,2})\s+(\d{4})\b/i.exec(raw);
+    if(m&&months[m[1].toLowerCase()])return {year:Number(m[3]),month:months[m[1].toLowerCase()],day:Number(m[2])};
+    const d=value instanceof Date?value:new Date(raw);
+    if(Number.isNaN(d.getTime()))return null;
+    const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d);
+    const o={};parts.forEach(x=>o[x.type]=x.value);
+    return {year:Number(o.year),month:Number(o.month),day:Number(o.day)};
+  }
+  function formatPortalDate(value){
+    const p=portalDateParts(value);
+    if(!p)return String(value??'').trim()||'—';
+    const mm=String(p.month).padStart(2,'0'),dd=String(p.day).padStart(2,'0');
+    const weekday=REQUEST_WEEKDAY_ZH[new Date(Date.UTC(p.year,p.month-1,p.day)).getUTCDay()];
+    return `${p.year}/${mm}/${dd}（${weekday}）`;
+  }
+  function requestDateLabel(kind){return kind==='leave'?'請假日期':kind==='leave_cancel'?'原請假日期':kind==='preleave'?'希望休假日':kind==='roster_change'?'調整日期':kind==='punch_correction'?'補卡日期':kind==='overtime'?'加班日期':'日期';}
+  function requestDateText(kind,p,r){
+    const start=p.startDate||p.originalStartDate||p.date||r.date||'';
+    if(kind==='roster_change')return `${formatPortalDate(p.fromDate||r.date||'')} → ${formatPortalDate(p.toDate||'')}`;
+    if(kind==='leave_cancel'){const end=p.originalEndDate||p.endDate||start;return end&&String(end)!==String(start)?`${formatPortalDate(start)} ～ ${formatPortalDate(end)}`:formatPortalDate(start);}
+    if(kind==='leave'&&p.endDate&&String(p.endDate)!==String(start))return `${formatPortalDate(start)} ～ ${formatPortalDate(p.endDate)}`;
+    return formatPortalDate(r.date||p.date||p.startDate||p.originalStartDate||'');
+  }
+  function requestIsPendingStatus(v){const s=String(v||'');return /^待同步/.test(s)||['待審核','待確認','文件待補','協商調整中'].includes(s);}
+  function statusClass(v){const s=String(v||'');if(requestIsPendingStatus(s))return 'status-pending';return /核准|成立|已排定|完成/.test(s)?'status-approved':/退回|駁回|失敗|已取消|已撤回/.test(s)?'status-rejected':'status-pending';}
+  function requestKindName(k,p={}){return k==='preleave'?(p.preScheduleType||p.requestType||'預排休假'):k==='leave'?(p.leaveName||p.leaveTypeCode||'請假'):k==='leave_cancel'?'取消請假申請':k==='roster_change'?'休假日期調整':k==='punch_correction'?'補卡申請':k==='overtime'?'加班申請':k==='work_completion'?'工作完成回報':k||'申請';}
   async function loadPortalData(){
     if(!state.token||state.portalBusy)return;state.portalBusy=true;
     if($('portalStatusBadge'))$('portalStatusBadge').textContent='同步中';
@@ -236,7 +267,7 @@
       else if(todaySeg.completed===1)$('homePunchStatus').textContent=`已完成 ${todaySeg.segments[0]?.out?.time||''}`;
       else $('homePunchStatus').textContent='尚未上班';
     }
-    if($('homePendingRequests'))$('homePendingRequests').textContent=String((p.requests||[]).filter(x=>!(/核准|成立|已排定|退回|駁回|取消|同步失敗/.test(String(x.status||'')))).length)+' 筆';
+    if($('homePendingRequests'))$('homePendingRequests').textContent=String((p.requests||[]).filter(x=>requestIsPendingStatus(x.status)).length)+' 筆';
     if($('homeAnnualLeave'))$('homeAnnualLeave').textContent=annual.remainingDays===null||annual.remainingDays===undefined?'—':fmtNum(annual.remainingDays)+' 日';
     const todaySchedule=(p.schedule?.rows||[]).find(x=>String(x.date||'')===today);
     if($('homeScheduleStatus'))$('homeScheduleStatus').textContent=todaySchedule?(todaySchedule.shiftName||todaySchedule.dayType||todaySchedule.status||'已排班'):'未發布';
@@ -257,7 +288,28 @@
       return `<div class="attendance-day"><div class="attendance-day-head"><b>${esc(r.date||'')}</b><span>${esc(statusText)}</span></div><div class="attendance-segments">${segHtml||'<span class="muted">無明細</span>'}</div>${total?`<div class="attendance-day-total">${esc(total)}</div>`:''}</div>`;
     }).join(''):'<p class="muted">目前沒有近期出勤紀錄。</p>';
   }
-  function requestCard(r){const p=(r.payload&&typeof r.payload==='object')?r.payload:r;const kind=r.requestKind||p.requestKind||p.kind||'';const dateText=kind==='roster_change'?`${p.fromDate||r.date||''} → ${p.toDate||''}`:(r.date||p.date||p.startDate||'');return `<div class="record ${statusClass(r.status)}"><b>${esc(requestKindName(kind,p))}<span class="request-status-pill">${esc(r.status||p.status||'待處理')}</span></b><span>${esc(dateText)}｜${esc(p.reason||p.note||'未填備註')}${(r.reviewNote||p.reviewNote)?'<br>主管：'+esc(r.reviewNote||p.reviewNote):''}</span></div>`;}
+  function requestActionHtml(r,p,kind){
+    if(kind!=='leave')return '';
+    const st=String(r.status||p.status||'');
+    const id=String(r.requestId||p.requestId||'');
+    if(!id)return '';
+    if(st==='待同步至主系統'||['待審核','待確認','文件待補','協商調整中'].includes(st)){
+      return `<div class="request-actions"><button type="button" class="request-action edit" onclick="editLeaveRequest('${esc(id)}')">✏️ 編輯</button><button type="button" class="request-action withdraw" onclick="withdrawLeaveRequest('${esc(id)}')">↩️ 撤回申請</button></div>`;
+    }
+    if(['已駁回','同步失敗'].includes(st)){
+      return `<div class="request-actions"><button type="button" class="request-action edit wide" onclick="editLeaveRequest('${esc(id)}')">✏️ 修改後重新送出</button></div>`;
+    }
+    if(['已核准','已成立','已排定'].includes(st)){
+      return `<div class="request-actions"><button type="button" class="request-action cancel wide" onclick="cancelApprovedLeaveRequest('${esc(id)}')">📝 申請取消請假</button></div>`;
+    }
+    return '';
+  }
+  function requestCard(r){
+    const p=(r.payload&&typeof r.payload==='object')?r.payload:r,kind=r.requestKind||p.requestKind||p.kind||'',st=String(r.status||p.status||'待處理');
+    const dateText=requestDateText(kind,p,r),note=String(p.reason||p.note||'').trim(),review=String(r.reviewNote||p.reviewNote||'').trim();
+    const linked=kind==='leave_cancel'&&p.originalLeaveName?`<span class="request-linked-note">原假別：${esc(p.originalLeaveName)}</span>`:'';
+    return `<div class="record ${statusClass(st)}"><b>${esc(requestKindName(kind,p))}<span class="request-status-pill">${esc(st)}</span></b><div class="request-date-line"><span class="request-date-label">${esc(requestDateLabel(kind))}</span><strong class="request-date-value">${esc(dateText)}</strong></div>${linked}<span class="request-note">${note?'備註：'+esc(note):'備註：未填'}</span>${review?`<span class="request-review-note">主管：${esc(review)}</span>`:''}${requestActionHtml(r,p,kind)}</div>`;
+  }
   function renderRequests(){const rows=state.portal?.requests||[];const el=$('requestHistory');if(el)el.innerHTML=rows.length?rows.map(requestCard).join(''):'<p class="muted">尚無申請紀錄。</p>';}
   function renderProfile(){const p=state.portal?.profile||{};const grid=$('profileGrid');if(grid){const fields=[['姓名',p.name],['員工編號',p.employeeId],['部門',p.department],['職務',p.position],['到職日',p.hireDate],['手機',p.mobile],['通訊地址',p.address],['住家電話',p.homePhone],['緊急聯絡人',p.emergencyContact],['緊急聯絡電話',p.emergencyPhone],['家庭狀況',p.familyStatus]];grid.innerHTML=fields.map(x=>`<div class="profile-item"><span>${esc(x[0])}</span><b>${esc(x[1]||'未填')}</b></div>`).join('');}
     const leave=state.portal?.leave||{},balances=leave.balances||{},annual=leave.annualLeave||{},g=$('leaveSummaryGrid');if(g)g.innerHTML=[['特別休假',annual.remainingDays===undefined?'—':fmtNum(annual.remainingDays)+' 日可用'],['事假共用',balances.personal_total?.remainingDays===undefined?'—':fmtNum(balances.personal_total.remainingDays)+' 日'],['普通病假',balances.sick_nonhospital?.usedDays===undefined?'—':fmtNum(balances.sick_nonhospital.usedDays)+' 日已用'],['家庭照顧假',balances.family_care_leave?.remainingDays===undefined?'—':fmtNum(balances.family_care_leave.remainingDays)+' 日可用']].map(x=>`<div class="portal-summary"><small>${esc(x[0])}</small><b>${esc(x[1])}</b><span>主系統試算</span></div>`).join('');}
@@ -267,6 +319,56 @@
   function toggleLeaveUnit(){const u=$('leaveUnit')?.value||'day';if($('leaveEndWrap'))$('leaveEndWrap').hidden=!['calendar_range'].includes(u);if($('leaveQuantityWrap'))$('leaveQuantityWrap').hidden=['calendar_range','fixed_calendar_days'].includes(u);}
   function renderRequestForms(){const raw=document.querySelector('.request-kind.active')?.dataset.requestKind||'leave';const kind=raw==='punch_correction'?'correction':raw;['leave','preleave','roster_change','correction','overtime'].forEach(k=>{const id=k==='leave'?'leaveRequestForm':k==='preleave'?'preleaveRequestForm':k==='roster_change'?'rosterChangeRequestForm':k==='correction'?'correctionRequestForm':'overtimeRequestForm';if($(id))$(id).hidden=k!==kind;});if(kind==='roster_change')renderRosterChangeOptions();}
   function chooseRequestKind(kind){document.querySelectorAll('.request-kind').forEach(b=>b.classList.toggle('active',b.dataset.requestKind===kind));renderRequestForms();}
+  function findPortalRequest(requestId){return (state.portal?.requests||[]).find(x=>String(x.requestId||x.payload?.requestId||'')===String(requestId||''))||null;}
+  function setLeaveEditMode(requestId='',sourceStatus=''){
+    state.editingLeaveRequestId=String(requestId||'');state.editingLeaveSourceStatus=String(sourceStatus||'');
+    const banner=$('leaveEditBanner'),btn=$('submitLeaveBtn'),txt=$('leaveEditBannerText');
+    if(banner)banner.hidden=!state.editingLeaveRequestId;
+    if(btn)btn.textContent=state.editingLeaveRequestId?'儲存修改並重新送審':'送出請假申請';
+    if(txt&&state.editingLeaveRequestId){txt.textContent=sourceStatus==='待同步至主系統'?'這筆尚未同步到主系統，儲存後會直接更新原申請。':'修改後會保留原始紀錄；已進主系統的舊申請會撤回，新內容重新送審。';}
+  }
+  function resetLeaveFormAfterEdit(){
+    setLeaveEditMode('','');
+    const d=portalDate();if($('leaveStartDate'))$('leaveStartDate').value=d;if($('leaveEndDate'))$('leaveEndDate').value=d;
+    if($('leaveQuantity'))$('leaveQuantity').value='1';if($('leaveReason'))$('leaveReason').value='';if($('leaveDocumentStatus'))$('leaveDocumentStatus').value='未提供';
+    renderLeaveRule();
+  }
+  function currentLeavePayload(){
+    const r=currentLeaveRule(),u=$('leaveUnit')?.value||r?.defaultUnit||'day';
+    const payload={requestKind:'leave',leaveTypeCode:$('leaveType')?.value||'annual_leave',leaveName:r?.name||$('leaveType')?.selectedOptions?.[0]?.textContent||'請假',date:$('leaveStartDate').value,startDate:$('leaveStartDate').value,endDate:$('leaveEndDate').value,unit:u,quantity:$('leaveQuantity').value,reason:$('leaveReason').value,documentStatus:$('leaveDocumentStatus').value};
+    const rel=$('leaveRelationship');if(rel)payload.relationship=rel.value;const cb=$('leaveChildBirth');if(cb)payload.childBirthDate=cb.value;const ins=$('leaveInsuranceChoice');if(ins)payload.insuranceChoice=ins.value;
+    if(u==='fixed_calendar_days')delete payload.quantity;if(u!=='calendar_range')delete payload.endDate;return payload;
+  }
+  window.editLeaveRequest=function(requestId){
+    const row=findPortalRequest(requestId);if(!row)return status($('requestStatus'),'找不到這筆請假申請，請先重新整理。','error');
+    const p=(row.payload&&typeof row.payload==='object')?row.payload:row,kind=String(row.requestKind||p.requestKind||'');if(kind!=='leave')return;
+    const st=String(row.status||p.status||'');if(!['待同步至主系統','待審核','待確認','文件待補','協商調整中','已駁回','同步失敗'].includes(st)){status($('requestStatus'),'這筆請假目前不能直接修改。','error');return;}
+    switchPortalView('requests');chooseRequestKind('leave');
+    if($('leaveType'))$('leaveType').value=String(p.leaveTypeCode||p.code||'annual_leave');renderLeaveRule();
+    const unit=String(p.unit||p.leaveUnit||currentLeaveRule()?.defaultUnit||'day');if($('leaveUnit')&&[...$('leaveUnit').options].some(o=>o.value===unit))$('leaveUnit').value=unit;toggleLeaveUnit();
+    if($('leaveStartDate'))$('leaveStartDate').value=String(p.startDate||p.date||row.date||'').slice(0,10);
+    if($('leaveEndDate'))$('leaveEndDate').value=String(p.endDate||p.startDate||p.date||row.date||'').slice(0,10);
+    if($('leaveQuantity'))$('leaveQuantity').value=String(p.quantity??p.leaveQuantity??1);
+    if($('leaveReason'))$('leaveReason').value=String(p.reason||'');if($('leaveDocumentStatus'))$('leaveDocumentStatus').value=String(p.documentStatus||'未提供');
+    if($('leaveRelationship')&&p.relationship)$('leaveRelationship').value=String(p.relationship);if($('leaveChildBirth')&&p.childBirthDate)$('leaveChildBirth').value=String(p.childBirthDate).slice(0,10);if($('leaveInsuranceChoice')&&p.insuranceChoice)$('leaveInsuranceChoice').value=String(p.insuranceChoice);
+    setLeaveEditMode(requestId,st);status($('requestStatus'),'已載入原請假內容，修改後按「儲存修改並重新送審」。','ok');
+    $('leaveRequestForm')?.scrollIntoView({behavior:'smooth',block:'start'});
+  };
+  window.withdrawLeaveRequest=async function(requestId){
+    const row=findPortalRequest(requestId);if(!row)return;const p=(row.payload&&typeof row.payload==='object')?row.payload:row;const dateText=requestDateText('leave',p,row);
+    if(!confirm(`確定要撤回「${dateText} ${requestKindName('leave',p)}」嗎？\n\n撤回後主管將不再審核這筆申請。`))return;
+    if(state.busy)return;state.busy=true;status($('requestStatus'),'正在撤回請假申請…');
+    try{const d=await postBridge('portalWithdrawRequest',{sessionToken:state.token,targetRequestId:requestId},15000);if(state.editingLeaveRequestId===requestId)resetLeaveFormAfterEdit();status($('requestStatus'),d.message||'請假申請已撤回','ok');await loadPortalData();}
+    catch(e){status($('requestStatus'),e.message||String(e),'error');}finally{state.busy=false;}
+  };
+  window.cancelApprovedLeaveRequest=async function(requestId){
+    const row=findPortalRequest(requestId);if(!row)return;const p=(row.payload&&typeof row.payload==='object')?row.payload:row;const dateText=requestDateText('leave',p,row),name=requestKindName('leave',p);
+    const reason=prompt(`申請取消已核准請假：${dateText}｜${name}\n\n請填寫取消原因（必填）：`,'');if(reason===null)return;if(!String(reason).trim()){status($('requestStatus'),'取消請假申請必須填寫原因。','error');return;}
+    if(!confirm(`確定送出「取消請假申請」嗎？\n\n原請假：${dateText}｜${name}\n主管核准取消前，原請假仍然有效。`))return;
+    if(state.busy)return;state.busy=true;status($('requestStatus'),'正在送出取消請假申請…');
+    try{const d=await postBridge('portalCancelLeaveRequest',{sessionToken:state.token,targetRequestId:requestId,reason:String(reason).trim()},15000);status($('requestStatus'),d.message||'取消請假申請已送出','ok');await loadPortalData();}
+    catch(e){status($('requestStatus'),e.message||String(e),'error');}finally{state.busy=false;}
+  };
   function corrToggle(){const t=$('corrType')?.value||'上班';if($('corrInWrap'))$('corrInWrap').hidden=t==='下班';if($('corrOutWrap'))$('corrOutWrap').hidden=t==='上班';}
   function validDate(v){return /^\d{4}-\d{2}-\d{2}$/.test(String(v||''));}
   function timeMinutes(v){const m=/^(\d{2}):(\d{2})$/.exec(String(v||''));if(!m)return null;const h=Number(m[1]),n=Number(m[2]);return h>=0&&h<24&&n>=0&&n<60?h*60+n:null;}
@@ -319,7 +421,13 @@
     return '';
   }
   async function submitPortalRequest(payload){const err=requestValidationError(payload);if(err){status($('requestStatus'),err,'error');return;}if(state.busy)return;state.busy=true;status($('requestStatus'),'正在送出申請…');try{const d=await postBridge('portalRequest',{sessionToken:state.token,payloadJson:JSON.stringify(payload)},15000);status($('requestStatus'),d.message||'申請已送出','ok');await loadPortalData();}catch(e){status($('requestStatus'),e.message||String(e),'error');}finally{state.busy=false;}}
-  function submitLeave(){const r=currentLeaveRule(),u=$('leaveUnit')?.value||r?.defaultUnit||'day';const payload={requestKind:'leave',leaveTypeCode:$('leaveType')?.value||'annual_leave',leaveName:r?.name||$('leaveType')?.selectedOptions?.[0]?.textContent||'請假',date:$('leaveStartDate').value,startDate:$('leaveStartDate').value,endDate:$('leaveEndDate').value,unit:u,quantity:$('leaveQuantity').value,reason:$('leaveReason').value,documentStatus:$('leaveDocumentStatus').value};const rel=$('leaveRelationship');if(rel)payload.relationship=rel.value;const cb=$('leaveChildBirth');if(cb)payload.childBirthDate=cb.value;const ins=$('leaveInsuranceChoice');if(ins)payload.insuranceChoice=ins.value;if(u==='fixed_calendar_days')delete payload.quantity;if(u!=='calendar_range')delete payload.endDate;submitPortalRequest(payload);}
+  async function submitLeave(){
+    const payload=currentLeavePayload(),err=requestValidationError(payload);if(err){status($('requestStatus'),err,'error');return;}
+    if(!state.editingLeaveRequestId){submitPortalRequest(payload);return;}
+    if(state.busy)return;state.busy=true;status($('requestStatus'),'正在儲存請假修改…');
+    try{const d=await postBridge('portalUpdateRequest',{sessionToken:state.token,targetRequestId:state.editingLeaveRequestId,payloadJson:JSON.stringify(payload)},15000);resetLeaveFormAfterEdit();status($('requestStatus'),d.message||'請假修改已送出','ok');await loadPortalData();}
+    catch(e){status($('requestStatus'),e.message||String(e),'error');}finally{state.busy=false;}
+  }
   function submitPreleave(){submitPortalRequest({requestKind:'preleave',date:$('preleaveDate').value,requestType:$('preleaveType').value,preScheduleType:$('preleaveType').value,reason:$('preleaveReason').value});}
   function submitRosterChange(){const from=$('rosterChangeFrom')?.value||'',to=$('rosterChangeTo')?.value||'',rows=state.portal?.schedule?.rows||[],src=rows.find(x=>String(x.date||'')===from)||{};submitPortalRequest({requestKind:'roster_change',date:from,fromDate:from,toDate:to,originalDayType:String(src.dayType||src.shiftName||''),reason:$('rosterChangeReason')?.value||''});}
   function submitCorrection(){const t=$('corrType').value;submitPortalRequest({requestKind:'punch_correction',date:$('corrDate').value,missingPunchType:t,requestedInTime:t==='下班'?'':$('corrIn').value,requestedOutTime:t==='上班'?'':$('corrOut').value,reason:$('corrReason').value});}
@@ -737,6 +845,6 @@
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
   $('loginBtn').addEventListener('click',login);$('employeeId').addEventListener('keydown',e=>{if(e.key==='Enter')$('employeePin').focus();});$('employeePin').addEventListener('keydown',e=>{if(e.key==='Enter')login();});if($('cameraCancelBtn'))$('cameraCancelBtn').addEventListener('click',cancelFlow);$('logoutBtn').addEventListener('click',logout);$('refreshPortalBtn').addEventListener('click',loadPortalData);$('cancelBtn').addEventListener('click',cancelFlow);$('locateBtn').addEventListener('click',locate);if($('openCameraBtn'))$('openCameraBtn').addEventListener('click',startCamera);$('switchCameraBtn').addEventListener('click',switchCamera);$('takePhotoBtn').addEventListener('click',takePhoto);if($('nativeCameraBtn'))$('nativeCameraBtn').addEventListener('click',()=>$('nativeCameraInput')?.click());if($('nativeCameraInput')){$('nativeCameraInput').addEventListener('click',()=>{state.nativeCameraPending=true;status($('flowStatus'),'iOS／手機系統相機正在開啟；拍照完成後會自動回到打卡頁預覽。','ok');});$('nativeCameraInput').addEventListener('change',e=>loadNativeCameraPhoto(e.target.files?.[0]));}$('retakeBtn').addEventListener('click',()=>startCamera());$('shareLineBtn').addEventListener('click',reviewPhotoAndAskLineShare);$('openLineBtn').addEventListener('click',openLineShare);$('manualLineBtn').addEventListener('click',confirmLineShared);$('submitPunchBtn').addEventListener('click',submitPunch);$('photoConfirmYesBtn').addEventListener('click',startConfirmedLineShare);$('photoReviewRetakeBtn').addEventListener('click',retakeFromReview);$('photoReviewUseBtn').addEventListener('click',acceptPhotoFromReview);$('photoConfirmRetakeBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');startCamera();});$('photoConfirmCancelBtn').addEventListener('click',()=>{closeConfirm('photoConfirmOverlay');showPhotoReviewOverlay();});$('lineResultYesBtn').addEventListener('click',confirmLineShared);$('lineResultRetryBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');shareLine();});$('lineResultNoBtn').addEventListener('click',()=>{closeConfirm('lineResultOverlay');status($('flowStatus'),'尚未確認 LINE 分享；本次打卡不會回傳。','');});document.querySelectorAll('[data-type]').forEach(b=>b.addEventListener('click',()=>beginFlow(b.dataset.type)));
-  document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);$('submitPreleaveBtn').addEventListener('click',submitPreleave);$('submitRosterChangeBtn').addEventListener('click',submitRosterChange);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('workPlanMonth').addEventListener('change',renderWorkPlan);$('workPlanPrevBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,-1);renderWorkPlan();});$('workPlanNextBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,1);renderWorkPlan();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
+  document.querySelectorAll('[data-portal-nav]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.portalNav)));document.querySelectorAll('[data-open-view]').forEach(b=>b.addEventListener('click',()=>switchPortalView(b.dataset.openView)));document.querySelectorAll('.request-kind').forEach(b=>b.addEventListener('click',()=>chooseRequestKind(b.dataset.requestKind)));$('leaveType').addEventListener('change',renderLeaveRule);$('leaveUnit').addEventListener('change',toggleLeaveUnit);$('corrType').addEventListener('change',corrToggle);$('submitLeaveBtn').addEventListener('click',submitLeave);if($('cancelLeaveEditBtn'))$('cancelLeaveEditBtn').addEventListener('click',()=>{resetLeaveFormAfterEdit();status($('requestStatus'),'已取消修改，原申請沒有變更。');});$('submitPreleaveBtn').addEventListener('click',submitPreleave);$('submitRosterChangeBtn').addEventListener('click',submitRosterChange);$('submitCorrBtn').addEventListener('click',submitCorrection);$('submitOtBtn').addEventListener('click',submitOvertime);$('scheduleMonth').addEventListener('change',()=>{state.scheduleSelectedDate='';renderSchedule();});$('schedulePrevBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,-1);state.scheduleSelectedDate='';renderSchedule();});$('scheduleNextBtn').addEventListener('click',()=>{$('scheduleMonth').value=monthShift($('scheduleMonth').value,1);state.scheduleSelectedDate='';renderSchedule();});$('workPlanMonth').addEventListener('change',renderWorkPlan);$('workPlanPrevBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,-1);renderWorkPlan();});$('workPlanNextBtn').addEventListener('click',()=>{$('workPlanMonth').value=monthShift($('workPlanMonth').value,1);renderWorkPlan();});$('taskFilter').addEventListener('change',renderTasks);$('loadPayslipBtn').addEventListener('click',loadPayslip);$('payrollPin').addEventListener('keydown',e=>{if(e.key==='Enter')loadPayslip();});$('printPayslipBtn').addEventListener('click',()=>window.print());initPortalForms();
   window.addEventListener('pagehide',stopCamera);if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});restoreEmployee();
 })();
