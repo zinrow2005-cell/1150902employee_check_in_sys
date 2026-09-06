@@ -1,11 +1,14 @@
 (function(){
   'use strict';
-  // W432 FIX368R2 IOS NATIVE CAMERA | iPhone/iPad use native system camera; WebRTC has hard timeouts.
+  // W432 FIX368R5 FINAL STAMP | final branded attendance photo layout.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
   const CFG=window.WTS_ATTENDANCE_CONFIG||{};
   const $=id=>document.getElementById(id);
+  const STAMP_LOGO_SRC='assets/wts-name-handwritten-white.png';
+  const stampAssets={nameLogo:null};
+  (function preloadStampLogo(){try{const img=new Image();img.decoding='async';img.onload=()=>{stampAssets.nameLogo=img;};img.src=STAMP_LOGO_SRC;}catch(_e){}})();
   const LOGIN_REMEMBER_MS=15*24*60*60*1000;
   const LOGIN_TOKEN_KEY='wts_att_session_15d';
   const LOGIN_EMPLOYEE_KEY='wts_att_employee_15d';
@@ -394,7 +397,7 @@
     $('loadPayslipBtn').disabled=true;status($('payrollStatus'),'正在進行二次身分驗證…');try{const d=await postBridge('portalPayslip',{sessionToken:state.token,month,pin},15000);$('payrollPin').value='';if(!d.payslip)throw new Error(d.message||'查無已發布薪資單');renderPayslip(d.payslip);status($('payrollStatus'),'身分驗證完成，只顯示本人這個月份的正式薪資單。','ok');}catch(e){$('payrollPin').value='';state.payslip=null;$('payslipPanel').hidden=true;status($('payrollStatus'),e.message||String(e),'error');}finally{$('loadPayslipBtn').disabled=!(state.portal?.payroll?.availableMonths||[]).length;}
   }
 
-  function updateCameraStamp(){const now=twParts();if($('cameraStampFarm'))$('cameraStampFarm').textContent=CFG.farmName||'王泰山畜牧場';if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';if($('cameraStampTime'))$('cameraStampTime').textContent=`台灣時間 ${now.date} ${now.time}`;}
+  function updateCameraStamp(){const now=twParts();const type=state.type||'上班';const stamp=$('cameraStamp');if(stamp){stamp.classList.toggle('is-on',type!=='下班');stamp.classList.toggle('is-off',type==='下班');}if($('cameraStampType'))$('cameraStampType').textContent=`${type}打卡`;if($('cameraStampEmployee'))$('cameraStampEmployee').textContent=state.employee?.name||state.employee?.id||'員工';if($('cameraStampDepartment'))$('cameraStampDepartment').textContent=state.employee?.department||'牧場工作';if($('cameraStampTime'))$('cameraStampTime').textContent=now.time;if($('cameraStampDate'))$('cameraStampDate').textContent=`${now.date}｜台灣時間`;if($('cameraStampLocation'))$('cameraStampLocation').textContent=state.locationLabel||'等待定位地址';}
   function startCameraStamp(){updateCameraStamp();if(state.cameraStampTimer)clearInterval(state.cameraStampTimer);state.cameraStampTimer=setInterval(updateCameraStamp,1000);if($('cameraStamp'))$('cameraStamp').hidden=false;}
   function updateCameraZoomLabels(){const label=state.cameraZoomLabel||'最廣';if($('cameraZoomBadge'))$('cameraZoomBadge').textContent=label;if($('cameraZoomStatic'))$('cameraZoomStatic').textContent=label;}
   function setCameraLiveBadge(text,mode='checking'){const el=$('cameraLiveBadge');if(!el)return;el.textContent=text||'';el.className='camera-live-badge '+mode;}
@@ -550,10 +553,49 @@
   }
   function markClientPunch(type){const now=String(Date.now());localStorage.setItem(cooldownKey('any'),now);localStorage.setItem(cooldownKey('same',type),now);}
   function beginPhotoConfirmation(){
-    $('photoConfirmSummary').innerHTML=`<b>${esc(CFG.farmName||'王泰山畜牧場')}｜${esc(state.type)}打卡</b><span>${esc(state.employee?.name||state.employee?.id||'員工')}</span><span>${esc(state.photoTakenAt)} 台灣時間</span><span>${esc(state.locationLabel||'未取得定位地址')}</span>`;
+    $('photoConfirmSummary').innerHTML=`<b>${esc(state.type)}打卡｜照片確認</b><span><b>員工</b> ${esc(state.employee?.name||state.employee?.id||'員工')}${state.employee?.department?`｜${esc(state.employee.department)}`:''}</span><span><b>時間</b> ${esc(state.photoTakenAt)} 台灣時間</span><span><b>定位</b> ${esc(state.locationLabel||'未取得定位地址')}</span>`;
     status($('photoConfirmStatus'),'確認後會開啟手機分享面板。照片只傳到 LINE；回傳主系統的是時間、GPS、定位地址等文字資料，不含照片。','');
     openConfirm('photoConfirmOverlay');
   }
+  function roundedRectPath(ctx,x,y,w,h,r){const rr=Math.max(0,Math.min(r,Math.min(w,h)/2));ctx.beginPath();ctx.moveTo(x+rr,y);ctx.arcTo(x+w,y,x+w,y+h,rr);ctx.arcTo(x+w,y+h,x,y+h,rr);ctx.arcTo(x,y+h,x,y,rr);ctx.arcTo(x,y,x+w,y,rr);ctx.closePath();}
+  function drawPill(ctx,x,y,w,h,fill,stroke,text,font,color){ctx.save();roundedRectPath(ctx,x,y,w,h,h/2);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}ctx.font=font;ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,x+w/2,y+h/2+0.5);ctx.restore();}
+  function drawAttendanceStamp(ctx,w,h,now){
+    const type=state.type||'上班';
+    const isOff=type==='下班';
+    const theme=isOff?{accent1:'#ffd36c',accent2:'#dd933d',pillFill:'rgba(255,211,108,.14)',pillStroke:'rgba(255,211,108,.40)',pin:'#ffd36c'}:{accent1:'#8bf397',accent2:'#4fc864',pillFill:'rgba(139,243,151,.14)',pillStroke:'rgba(139,243,151,.40)',pin:'#8bf397'};
+    const pad=Math.max(24,Math.round(w*.028));
+    const panelH=Math.max(236,Math.round(h*.255));
+    const x=pad,y=h-panelH-pad,panelW=w-pad*2,radius=Math.max(19,Math.round(w*.022));
+    ctx.save();
+    roundedRectPath(ctx,x,y,panelW,panelH,radius);
+    const bg=ctx.createLinearGradient(0,y,0,y+panelH);bg.addColorStop(0,'rgba(6,18,12,.88)');bg.addColorStop(.58,'rgba(8,25,17,.83)');bg.addColorStop(1,'rgba(6,18,12,.76)');
+    ctx.fillStyle=bg;ctx.fill();ctx.strokeStyle='rgba(255,255,255,.11)';ctx.lineWidth=1;ctx.stroke();
+    const ag=ctx.createLinearGradient(x,y,x,y+panelH);ag.addColorStop(0,theme.accent1);ag.addColorStop(1,theme.accent2);ctx.fillStyle=ag;roundedRectPath(ctx,x,y,5,panelH,radius);ctx.fill();
+    const inner=x+Math.max(21,Math.round(w*.023));
+    const innerW=panelW-Math.max(42,Math.round(w*.047));
+    let cy=y+Math.max(17,Math.round(w*.019));
+    const logo=stampAssets.nameLogo,logoH=Math.max(28,Math.round(w*.044)),maxLogoW=Math.min(innerW*.58,Math.round(w*.46));
+    if(logo&&logo.complete&&logo.naturalWidth){const ratio=logo.naturalWidth/logo.naturalHeight||1,drawW=Math.min(maxLogoW,logoH*ratio),drawH=drawW/ratio;ctx.drawImage(logo,inner,cy,drawW,drawH);}else{ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.034))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(CFG.farmName||'王泰山畜牧場',inner,cy);}
+    const badgeText=`${type}打卡`,badgeFont=`900 ${Math.max(14,Math.round(w*.019))}px sans-serif`;ctx.font=badgeFont;const badgeW=Math.min(innerW*.29,Math.max(88,ctx.measureText(badgeText).width+Math.max(24,Math.round(w*.024)))),badgeX=x+panelW-badgeW-Math.max(18,Math.round(w*.02));
+    drawPill(ctx,badgeX,cy,badgeW,Math.max(30,Math.round(w*.037)),theme.pillFill,theme.pillStroke,badgeText,badgeFont,'#fff');
+    cy+=Math.max(44,Math.round(w*.058));
+    ctx.fillStyle='rgba(255,255,255,.58)';ctx.font=`800 ${Math.max(12,Math.round(w*.0165))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('定位自拍打卡紀錄',inner,cy);
+    cy+=Math.max(17,Math.round(w*.026));
+    ctx.fillStyle='#fff';ctx.font=`950 ${Math.max(44,Math.round(w*.074))}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;ctx.fillText(now.time,inner,cy);
+    cy+=Math.max(59,Math.round(w*.082));
+    ctx.fillStyle='rgba(255,255,255,.92)';ctx.font=`750 ${Math.max(16,Math.round(w*.022))}px sans-serif`;ctx.fillText(`${now.date}｜台灣時間`,inner,cy);
+    cy+=Math.max(28,Math.round(w*.036));
+    const emp=state.employee?.name||state.employee?.id||'員工';const empId=String(state.employee?.id||state.employee?.employeeId||'').trim();const dept=String(state.employee?.department||'').trim();
+    const personLine=empId&&empId!==emp?`${emp}｜${empId}`:emp;
+    ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,Math.round(w*.024))}px sans-serif`;ctx.fillText(personLine,inner,cy);
+    if(dept){ctx.font=`800 ${Math.max(14,Math.round(w*.0185))}px sans-serif`;const deptW=Math.min(innerW*.36,Math.max(80,ctx.measureText(dept).width+22));drawPill(ctx,x+panelW-deptW-Math.max(18,Math.round(w*.02)),cy-3,deptW,Math.max(27,Math.round(w*.034)),'rgba(255,255,255,.09)','rgba(255,255,255,.10)',dept,ctx.font,'rgba(255,255,255,.94)');}
+    cy+=Math.max(34,Math.round(w*.043));
+    ctx.strokeStyle='rgba(255,255,255,.08)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(inner,cy-4);ctx.lineTo(inner+innerW,cy-4);ctx.stroke();
+    const pinX=inner+6,pinY=cy+9;ctx.save();ctx.translate(pinX,pinY);ctx.rotate(-Math.PI/4);ctx.fillStyle=theme.pin;ctx.beginPath();ctx.moveTo(0,-6);ctx.arcTo(6,-6,6,0,6);ctx.arcTo(6,6,0,6,6);ctx.arcTo(0,6,-6,6,6);ctx.arcTo(-6,6,-6,0,6);ctx.arcTo(-6,-6,0,-6,6);ctx.closePath();ctx.fill();ctx.fillStyle='rgba(6,18,12,.82)';ctx.beginPath();ctx.arc(0,0,2.5,0,Math.PI*2);ctx.fill();ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.86)';ctx.font=`500 ${Math.max(15,Math.round(w*.0205))}px sans-serif`;wrapText(ctx,state.locationLabel||'未取得定位地址',innerW-24).slice(0,2).forEach((line,i)=>ctx.fillText(line,inner+20,cy+i*Math.max(22,Math.round(w*.029))));
+    ctx.restore();
+  }
+
   async function takePhoto(){
     const btn=$('takePhotoBtn'),v=$('cameraVideo');if(!state.cameraFrameVerified){status($('flowStatus'),'鏡頭尚未通過即時影像檢查，不能拍照。請重新開啟鏡頭或改用手機系統相機。','error');return;}if(btn)btn.disabled=true;
     try{
@@ -561,7 +603,7 @@
       const c=$('photoCanvas'),max=1440,scale=Math.min(1,max/v.videoWidth),w=Math.round(v.videoWidth*scale),h=Math.round(v.videoHeight*scale);c.width=w;c.height=h;const ctx=c.getContext('2d',{alpha:false});
       let blank=true;for(let attempt=0;attempt<3;attempt++){ctx.fillStyle='#111';ctx.fillRect(0,0,w,h);drawVideoFrame(ctx,v,w,h);blank=canvasLooksBlank(ctx,w,h);if(!blank)break;await new Promise(r=>setTimeout(r,140));await waitForVideoFrame(v);}
       if(blank)throw new Error('相機這一格沒有取得影像，已保留鏡頭畫面；請再按一次「拍攝自拍」。');
-      const now=twParts();state.photoTakenAt=now.dateTime;const bandH=Math.max(170,Math.round(h*.21));ctx.fillStyle='rgba(10,24,15,.78)';ctx.fillRect(0,h-bandH,w,bandH);ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.035))}px sans-serif`;ctx.fillText(`${CFG.farmName||'王泰山畜牧場'}｜${state.type}打卡`,24,h-bandH+42);ctx.font=`600 ${Math.max(20,Math.round(w*.028))}px sans-serif`;ctx.fillText(`${state.employee?.name||state.employee?.id||'員工'}｜${now.dateTime} 台灣時間`,24,h-bandH+82);ctx.font=`500 ${Math.max(17,Math.round(w*.023))}px sans-serif`;let y=h-bandH+118;wrapText(ctx,state.locationLabel,w-48).forEach(line=>{ctx.fillText(line,24,y);y+=Math.max(24,Math.round(w*.03));});
+      const now=twParts();state.photoTakenAt=now.dateTime;drawAttendanceStamp(ctx,w,h,now);
       const blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',0.88));if(!blob)throw new Error('照片建立失敗，請重新拍照。');
       state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;v.hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;if($('photoReviewBox'))$('photoReviewBox').hidden=false;const dl=$('downloadPhotoLink');dl.href=state.photoUrl;dl.download=`WTS_${state.employee?.id||'EMP'}_${state.type}_${now.date.replaceAll('-','')}_${Date.now()}.jpg`;dl.hidden=true;if($('openLineBtn'))$('openLineBtn').hidden=true;if($('manualLineBtn'))$('manualLineBtn').hidden=true;stopCamera();setStep('photo','active');setStep('line','');status($('flowStatus'),'自拍完成，尚未傳送。系統已開啟照片預覽；請先確認照片，再決定重拍或使用這張。','ok');showPhotoReviewOverlay();
     }catch(e){status($('flowStatus'),e.message||String(e),'error');}
@@ -577,7 +619,7 @@
       const sw=Number(source.width||source.naturalWidth||0),sh=Number(source.height||source.naturalHeight||0);if(!sw||!sh)throw new Error('手機系統相機沒有回傳有效照片');
       const c=$('photoCanvas'),max=1440,scale=Math.min(1,max/sw),w=Math.max(1,Math.round(sw*scale)),h=Math.max(1,Math.round(sh*scale));c.width=w;c.height=h;const ctx=c.getContext('2d',{alpha:false});ctx.drawImage(source,0,0,w,h);cleanup();
       if(canvasLooksBlank(ctx,w,h))throw new Error('手機系統相機回傳的照片仍是全黑，請重新拍攝。');
-      const now=twParts();state.photoTakenAt=now.dateTime;const bandH=Math.max(170,Math.round(h*.21));ctx.fillStyle='rgba(10,24,15,.78)';ctx.fillRect(0,h-bandH,w,bandH);ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.035))}px sans-serif`;ctx.fillText(`${CFG.farmName||'王泰山畜牧場'}｜${state.type}打卡`,24,h-bandH+42);ctx.font=`600 ${Math.max(20,Math.round(w*.028))}px sans-serif`;ctx.fillText(`${state.employee?.name||state.employee?.id||'員工'}｜${now.dateTime} 台灣時間`,24,h-bandH+82);ctx.font=`500 ${Math.max(17,Math.round(w*.023))}px sans-serif`;let y=h-bandH+118;wrapText(ctx,state.locationLabel,w-48).forEach(line=>{ctx.fillText(line,24,y);y+=Math.max(24,Math.round(w*.03));});
+      const now=twParts();state.photoTakenAt=now.dateTime;drawAttendanceStamp(ctx,w,h,now);
       const blob=await new Promise(resolve=>c.toBlob(resolve,'image/jpeg',0.88));if(!blob)throw new Error('照片建立失敗');state.photoBlob=blob;state.photoUrl=URL.createObjectURL(blob);$('photoPreview').hidden=true;c.hidden=false;$('cameraVideo').hidden=true;$('faceGuide').hidden=true;if($('cameraStamp'))$('cameraStamp').hidden=true;$('cameraActions').hidden=true;$('photoActions').hidden=false;if($('photoReviewBox'))$('photoReviewBox').hidden=false;hideCameraFallback();stopCamera();status($('flowStatus'),'手機系統相機拍照完成；請先確認照片。','ok');showPhotoReviewOverlay();
     }catch(e){status($('flowStatus'),e.message||String(e),'error');showCameraFallback(e.message||'系統相機照片無法使用，請再試一次。');}
     finally{const input=$('nativeCameraInput');if(input)input.value='';}
