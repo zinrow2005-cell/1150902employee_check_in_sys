@@ -1,16 +1,5 @@
-# W432 FIX368R1 CAMERA VERIFIED 部署
+# W432 FIX368R2 IOS NATIVE CAMERA
 
-1. GitHub repository 根目錄以本資料夾全部檔案覆蓋。
-2. 確認登入頁顯示「GitHub 員工自助端 W432 FIX368R1」。
-3. Apps Script 用 `backend_google_apps_script/Code.gs` 完整更新同一個 Web App 部署。
-4. 「測試橋接」必須回傳 `W432_FIX368_CLEAN`。
-5. 回主系統確認 SYNC_KEY、啟用橋接並重新同步員工帳號＋自助資料。
-6. 在主系統「排班輪休表」完成一個月份後，按「發布本月班表到員工端」。
-7. 員工重新整理「我的班表」，確認已發布班表可見。
-8. 員工測試一筆「預排休假」或一般請假；主系統同步後應在員工申請審核區看到，主管處理後狀態應回到手機端。
-9. 正常出勤仍測試 `上班 → 下班`；特殊回場才建立第 2 段。
+這是 W432 FIX368 的 iPhone/iPad 相機相容性修補。Apps Script API 沒有變更，不必重新部署 Code.gs。
 
-10. 測試「我的班表 → 申請調整這個休假日」；主系統同步後應看到「休假日期調整」待審，核准後手機班表才變更。
-
-
-本 R1 只修改 GitHub 員工端相機；Apps Script 橋接版本仍回傳 `W432_FIX368_CLEAN`，不需重新部署 Code.gs。
+GitHub Pages 更新後請確認畫面版本為 `W432 FIX368R2`。
