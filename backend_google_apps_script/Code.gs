@@ -1,5 +1,5 @@
 /**
- * W441 FIX377 CLEAN｜王泰山畜牧場員工自助中心｜固定工資基礎與薪資逐筆公式橋接
+ * W449 FIX385 CLEAN｜王泰山畜牧場員工自助中心｜工作項目同步 JSON 強化橋接
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W441_FIX377_CLEAN';
+const BRIDGE_VERSION = 'W449_FIX385_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -233,7 +233,12 @@ function doPost(e) {
     if (action === 'punch') return bridgeHtml_(Object.assign({requestId:requestId}, punch_(p)));
     return bridgeHtml_({ok:false, requestId:requestId, message:'未知 action'});
   } catch (err) {
-    return bridgeHtml_({ok:false, requestId:requestId, message:String(err && err.message || err || '伺服器錯誤')});
+    const msg=String(err && err.message || err || '伺服器錯誤');
+    const managerJsonActions=['export','syncEmployees','syncPortalData','exportPortalRequests','syncPortalRequestStatuses','syncPortalPayslips','syncPortalWorkPlan'];
+    if(managerJsonActions.indexOf(action)>=0){
+      return json_({ok:false, code:'bridge_exception', action:action, requestId:requestId, message:msg, version:BRIDGE_VERSION});
+    }
+    return bridgeHtml_({ok:false, requestId:requestId, message:msg});
   }
 }
 
@@ -532,8 +537,10 @@ function portalData_(p) {
   const employee=sessionEmployee_(p.sessionToken);
   if(!employee)return {ok:false,message:'登入已逾時，請重新登入'};
   const snapshot=portalSnapshot_(employee.id)||{employeeId:employee.id,profile:{employeeId:employee.id,name:employee.name||employee.id,department:employee.department||''},attendanceRecent:[],leave:{rules:[],balances:{},annualLeave:{}},requests:[],summary:{}};
-  snapshot.departmentWorkPlan=portalWorkPlan_();
-  snapshot.summary=snapshot.summary||{};snapshot.summary.majorWorkItems=(snapshot.departmentWorkPlan.rows||[]).length;
+  const embeddedWorkPlan=(snapshot.departmentWorkPlan&&typeof snapshot.departmentWorkPlan==='object')?snapshot.departmentWorkPlan:null;
+  const sharedWorkPlan=portalWorkPlan_();
+  snapshot.departmentWorkPlan=(sharedWorkPlan&&Array.isArray(sharedWorkPlan.rows)&&sharedWorkPlan.rows.length)?sharedWorkPlan:(embeddedWorkPlan||sharedWorkPlan);
+  snapshot.summary=snapshot.summary||{};snapshot.summary.majorWorkItems=(snapshot.departmentWorkPlan&&Array.isArray(snapshot.departmentWorkPlan.rows)?snapshot.departmentWorkPlan.rows:[]).length;
   const merged={},base=Array.isArray(snapshot.requests)?snapshot.requests:[],cloud=portalRequestsForEmployee_(employee.id);
   base.concat(cloud).forEach(function(x){if(!x||typeof x!=='object')return;const id=String(x.requestId||'');if(!id)return;merged[id]=Object.assign({},merged[id]||{},x);});
   snapshot.requests=Object.keys(merged).map(function(k){return merged[k];}).sort(function(a,b){return String(b.updatedAt||b.createdAt||'').localeCompare(String(a.updatedAt||a.createdAt||''));}).slice(0,80);

@@ -1,4 +1,4 @@
-// W448 FIX384
+// W449 FIX385
 const CACHE='wts-employee-portal-current-20260907-fix384';
 const ASSETS=['./','index.html','style.css?v=448384','app.js?v=448384','config.js?v=448384','manifest.webmanifest','assets/wts-logo-original.png','assets/wts-name-handwritten-white.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
