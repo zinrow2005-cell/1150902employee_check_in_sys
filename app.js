@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W445 FIX381 | real work-sync diagnostics + approved-task preview + workforce actual-work source.
+  // W446 FIX382 | single employee work entry + existing work-sync diagnostics and reporting flow.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
