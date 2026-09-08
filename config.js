@@ -1,5 +1,5 @@
-// W456 FIX392-R2 client｜public configuration only.
-// `version` is the Apps Script bridge protocol identifier; R1 keeps W456_FIX392_CLEAN for compatibility.
+// W456 FIX392-R4 client｜public configuration only.
+// `version` is the Apps Script bridge protocol identifier; R4 keeps W456_FIX392_CLEAN for compatibility.
 // Never place SYNC_KEY or employee PIN here.
 window.WTS_ATTENDANCE_CONFIG = {
   version: 'W456_FIX392_CLEAN',

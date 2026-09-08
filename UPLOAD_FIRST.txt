@@ -1,0 +1,6 @@
+W456 FIX392-R4 GitHub 員工端 CLEAN 上傳包
+
+將本資料夾內所有檔案直接上傳／覆蓋到 GitHub Pages repository 根目錄。
+更新後登入畫面應顯示：GitHub 員工自助端 W456 FIX392-R4
+
+此包不含 Apps Script 後端與歷史 release notes。

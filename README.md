@@ -1,11 +1,12 @@
-# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R2
+# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R4
 
-本資料夾只包含 GitHub Pages 正式執行檔。
+本資料夾是 GitHub Pages 正式員工端。
 
-- 登入流程：`login → portalData`，`health` 只做背景診斷，不阻擋登入。
-- 不再在登入前送出 `clientHandshake`，避免線上 Apps Script 尚未支援新 action 時出現「未知 ACTION」。
-- 裝置自行儲存的 Apps Script `/exec` 優先於 `config.js`，重新整理不會被覆蓋。
-- Apps Script 橋接協定仍為 `W456_FIX392_CLEAN`，R2 不要求因版本名稱本身重新部署後端。
-- R2 為最終整合稽核版：同步主系統內建員工端副本、測試程式與部署文件，避免之後又從主系統資料夾拿到舊 FIX392 前端。
+- 登入流程：`login → portalData`；`health` 只做背景診斷。
+- 手機若保存舊 Apps Script `/exec`，登入遇到「未知 ACTION」或逾時會自動改試 GitHub `config.js` 的正式 `/exec`；成功後修復此裝置保存網址。
+- 桌機／非 iOS 相機會依序嘗試瀏覽器預設鏡頭、facingMode 與實體 `deviceId`；偵測黑畫面會自動換下一顆。
+- 「工作月曆／我的班表」會同時顯示正式個人班表與主系統同步的批次重大工作。
+- Apps Script bridge protocol：`W456_FIX392_CLEAN`。
+- 上傳 GitHub 時，請將 CLEAN 上傳包解壓後的內容直接覆蓋 repository 根目錄。
 
-上傳 GitHub 時，將本資料夾內容直接放在 repository 根目錄。
+若畫面右上角不是 **W456 FIX392-R4**，代表瀏覽器／PWA 仍在使用舊 GitHub build。
