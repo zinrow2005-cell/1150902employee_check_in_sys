@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W456 FIX392-R1 | login compatibility hotfix; batch-work single center; personal task assignment/reporting retired.
+  // W456 FIX392-R2 | login compatibility hotfix; batch-work single center; personal task assignment/reporting retired.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -291,6 +291,7 @@
     else if(diffMs>=0&&diffMs<7*24*60*60*1000)age=`約 ${Math.floor(diffMs/86400000)} 天前`;
     return {main,age,full:`${p.year}/${String(p.month).padStart(2,'0')}/${String(p.day).padStart(2,'0')} ${p.time}`};
   }
+  function formatPortalDateTime(value){const t=syncTimeDisplay(value);return t.full||'';}
   function setPortalSyncSuccess(value){
     const el=$('portalSyncText');if(!el)return;const t=syncTimeDisplay(value);
     el.innerHTML=`<span class="portal-sync-main"><span class="portal-sync-label">最後同步</span><b class="portal-sync-time">${esc(t.main)}</b>${t.age?`<span class="portal-sync-age">${esc(t.age)}</span>`:''}</span><span class="portal-sync-hint">主管若剛修改資料，會在下一次同步後更新。</span>`;
