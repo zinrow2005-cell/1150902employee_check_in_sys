@@ -1,14 +1,18 @@
 (function(){
   'use strict';
-  // W456 FIX392-R4 | related-page audit: view-scoped refresh, published-month preservation, request/status consistency.
+  // W456 FIX392-R5 | punch return + desktop camera + enlarged non-overlapping attendance stamp.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
   const CFG=window.WTS_ATTENDANCE_CONFIG||{};
   const $=id=>document.getElementById(id);
   const STAMP_LOGO_SRC='assets/wts-name-handwritten-white.png';
-  const stampAssets={nameLogo:null};
-  (function preloadStampLogo(){try{const img=new Image();img.decoding='async';img.onload=()=>{stampAssets.nameLogo=img;};img.src=STAMP_LOGO_SRC;}catch(_e){}})();
+  const STAMP_ICON_SRC='assets/wts-logo-original.png';
+  const stampAssets={nameLogo:null,iconLogo:null};
+  (function preloadStampAssets(){
+    try{const name=new Image();name.decoding='async';name.onload=()=>{stampAssets.nameLogo=name;};name.src=STAMP_LOGO_SRC;}catch(_e){}
+    try{const icon=new Image();icon.decoding='async';icon.onload=()=>{stampAssets.iconLogo=icon;};icon.src=STAMP_ICON_SRC;}catch(_e){}
+  })();
   const LOGIN_REMEMBER_MS=15*24*60*60*1000;
   const LOGIN_TOKEN_KEY='wts_att_session_15d';
   const LOGIN_EMPLOYEE_KEY='wts_att_employee_15d';
@@ -40,7 +44,7 @@
     return exp;
   }
   const persistedLogin=savedLogin();
-  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false,bridgeVersionVerified:false,editingLeaveRequestId:'',editingLeaveSourceStatus:'',editingLeaveTypeCode:'',leaveStartDatePrevious:'',scheduleMonthTouched:false,portalLastLoadedAt:0};
+  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false,bridgeVersionVerified:false,editingLeaveRequestId:'',editingLeaveSourceStatus:'',editingLeaveTypeCode:'',leaveStartDatePrevious:'',scheduleMonthTouched:false,portalLastLoadedAt:0,preferredCameraDeviceId:'',cameraDeviceIds:[],cameraDeviceIndex:-1,cameraDeviceLabel:''};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -732,19 +736,27 @@
     else await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     return v;
   }
-  async function cameraConstraintCandidates(){
-    const list=[];
-    // Desktop first: ask the browser for its known-good default camera before applying mobile-oriented constraints.
-    if(!isIOSDevice())list.push({label:'瀏覽器預設鏡頭',video:true});
-    list.push({label:`${state.facing==='environment'?'後':'前'}鏡頭（建議）`,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600}}});
-    list.push({label:`${state.facing==='environment'?'後':'前'}鏡頭（相容）`,video:{facingMode:{ideal:state.facing}}});
+  async function refreshCameraDevices(){
     try{
       const devices=await navigator.mediaDevices?.enumerateDevices?.();
       const cams=(Array.isArray(devices)?devices:[]).filter(d=>d&&d.kind==='videoinput'&&d.deviceId);
-      cams.forEach((d,i)=>{if(!list.some(x=>x.deviceId===d.deviceId))list.push({label:d.label||`實體鏡頭 ${i+1}`,deviceId:d.deviceId,video:{deviceId:{exact:d.deviceId}}});});
-    }catch(_e){}
-    // Last fallback must really be reached; R2 loop stopped before its video:true candidate.
-    if(!list.some(x=>x.video===true))list.push({label:'最相容預設鏡頭',video:true});
+      state.cameraDeviceIds=cams.map(d=>String(d.deviceId));
+      if(state.preferredCameraDeviceId){const ix=state.cameraDeviceIds.indexOf(state.preferredCameraDeviceId);if(ix>=0)state.cameraDeviceIndex=ix;}
+      return cams;
+    }catch(_e){state.cameraDeviceIds=[];return [];}
+  }
+  async function cameraConstraintCandidates(){
+    const list=[],seen=new Set();
+    const add=(candidate)=>{const key=String(candidate?.deviceId||candidate?.label||JSON.stringify(candidate?.video||true));if(seen.has(key))return;seen.add(key);list.push(candidate);};
+    const cams=await refreshCameraDevices();
+    // If the user explicitly cycled to a physical desktop webcam, always try that exact device first.
+    if(state.preferredCameraDeviceId){const d=cams.find(x=>String(x.deviceId)===String(state.preferredCameraDeviceId));add({label:d?.label||'指定實體鏡頭',deviceId:state.preferredCameraDeviceId,video:{deviceId:{exact:state.preferredCameraDeviceId}}});}
+    // Desktop first: browser default often points to the working USB camera.
+    if(!isIOSDevice())add({label:'瀏覽器預設鏡頭',video:true});
+    add({label:`${state.facing==='environment'?'後':'前'}鏡頭（建議）`,video:{facingMode:{ideal:state.facing},width:{ideal:1280},height:{ideal:1600}}});
+    add({label:`${state.facing==='environment'?'後':'前'}鏡頭（相容）`,video:{facingMode:{ideal:state.facing}}});
+    cams.forEach((d,i)=>add({label:d.label||`實體鏡頭 ${i+1}`,deviceId:d.deviceId,video:{deviceId:{exact:d.deviceId}}}));
+    add({label:'最相容預設鏡頭',video:true});
     return list;
   }
   async function requestCameraStream(candidate={video:true}){
@@ -752,9 +764,14 @@
     return promiseTimeout(navigator.mediaDevices.getUserMedia({audio:false,video}),6500,'相機硬體沒有在 6.5 秒內回應');
   }
   function sampleVideoPixels(v){
-    const c=document.createElement('canvas');c.width=96;c.height=72;const ctx=c.getContext('2d',{alpha:false,willReadFrequently:true});ctx.drawImage(v,0,0,c.width,c.height);const d=ctx.getImageData(0,0,c.width,c.height).data;let max=0,sum=0,sumSq=0,count=0,nonZero=0;
-    for(let i=0;i<d.length;i+=16){const y=(Number(d[i])+Number(d[i+1])+Number(d[i+2]))/3;max=Math.max(max,y);sum+=y;sumSq+=y*y;count++;if(y>2)nonZero++;}
-    const mean=count?sum/count:0,variance=count?Math.max(0,sumSq/count-mean*mean):0;return {max,mean,variance,nonZero,count,black:max<=2&&nonZero===0};
+    const c=document.createElement('canvas');c.width=96;c.height=72;const ctx=c.getContext('2d',{alpha:false,willReadFrequently:true});ctx.drawImage(v,0,0,c.width,c.height);const d=ctx.getImageData(0,0,c.width,c.height).data;let max=0,min=255,sum=0,sumSq=0,count=0,bright=0;
+    for(let i=0;i<d.length;i+=16){const y=(Number(d[i])+Number(d[i+1])+Number(d[i+2]))/3;max=Math.max(max,y);min=Math.min(min,y);sum+=y;sumSq+=y*y;count++;if(y>30)bright++;}
+    const mean=count?sum/count:0,variance=count?Math.max(0,sumSq/count-mean*mean):0,range=max-min;
+    // A virtual/failed camera is often not RGB 0; many drivers output flat studio-black around 16.
+    const absoluteBlack=max<=4;
+    const flatNearBlack=mean<22&&max<42&&variance<18&&range<30;
+    const nearBlack=mean<12&&max<55&&bright<=Math.max(1,Math.round(count*.003));
+    return {max,min,mean,variance,range,bright,count,black:absoluteBlack||flatNearBlack||nearBlack};
   }
   async function verifyLiveCameraFrame(v,phase='鏡頭',timeoutMs=3800){
     const track=state.stream?.getVideoTracks?.()[0];if(!track||track.readyState!=='live')throw new Error(`${phase}串流沒有處於 live 狀態`);
@@ -764,39 +781,48 @@
       if(advanced&&last&&!last.black){state.cameraFrameVerified=true;return {track,frame:last,currentTime:nowTime};}
       await new Promise(r=>setTimeout(r,120));
     }
-    const detail=last?`max=${Math.round(last.max)} mean=${last.mean.toFixed(1)}`:'no-frame';throw new Error(`${phase}串流存在，但沒有取得可用影像（${detail}）`);
+    const detail=last?`max=${Math.round(last.max)} mean=${last.mean.toFixed(1)} var=${last.variance.toFixed(1)}`:'no-frame';throw new Error(`${phase}串流存在，但畫面仍是黑屏或沒有有效影像（${detail}）`);
   }
   async function startCamera(){
     // iOS Safari/PWA uses the operating-system camera directly. Other browsers cycle real devices and reject black streams.
     if(isIOSDevice())return openIOSNativeCamera();
     stopCamera();clearPhoto();hideCameraFallback();if(!navigator.mediaDevices?.getUserMedia){status($('flowStatus'),'瀏覽器不支援即時相機。請改用系統相機。','error');showCameraFallback('此瀏覽器不支援網頁即時相機，請改用系統相機拍照。');return false;}
-    const seq=++state.cameraStartSeq;$('cameraWrap').hidden=false;$('cameraActions').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;if($('cameraLoading'))$('cameraLoading').hidden=false;state.cameraZoomLabel='最廣';state.cameraFrameVerified=false;state.cameraZoomApplied=false;enterCameraFullscreen();setCameraLiveBadge('正在檢查鏡頭','checking');status($('flowStatus'),'正在逐一檢查可用相機，黑畫面會自動跳過…');
+    const seq=++state.cameraStartSeq;$('cameraWrap').hidden=false;$('cameraActions').hidden=true;$('photoCanvas').hidden=true;$('cameraVideo').hidden=false;if($('cameraLoading'))$('cameraLoading').hidden=false;state.cameraZoomLabel='最廣';state.cameraFrameVerified=false;state.cameraZoomApplied=false;enterCameraFullscreen();setCameraLiveBadge('正在檢查鏡頭','checking');status($('flowStatus'),'正在逐一檢查可用相機；純黑／近黑虛擬鏡頭會自動跳過…');
     let lastErr=null;const candidates=await cameraConstraintCandidates();
     for(let attempt=0;attempt<candidates.length;attempt++){
       const candidate=candidates[attempt]||{label:`鏡頭 ${attempt+1}`,video:true};
       try{
         const stream=await requestCameraStream(candidate);if(seq!==state.cameraStartSeq){stream.getTracks().forEach(t=>t.stop());return false;}
         state.stream=stream;const track=stream.getVideoTracks?.()[0],settings=track?.getSettings?.()||{};if(settings.facingMode)state.facing=String(settings.facingMode)==='environment'?'environment':'user';
-        const v=await attachAndPlayCamera(stream);setCameraLiveBadge(`檢查 ${candidate.label||'鏡頭'} 影像`,'checking');await verifyLiveCameraFrame(v,candidate.label||'鏡頭',3300);
-        // R4: do not force Web zoom on desktop. Some USB/virtual cameras turn black after zoom constraints.
+        const v=await attachAndPlayCamera(stream);setCameraLiveBadge(`檢查 ${candidate.label||'鏡頭'} 影像`,'checking');await verifyLiveCameraFrame(v,candidate.label||'鏡頭',3600);
         if(/Android|Mobile/i.test(String(navigator.userAgent||''))){const zr=await forceMinimumZoom();if(zr.applied){await new Promise(r=>setTimeout(r,120));try{await verifyLiveCameraFrame(v,'倍率調整後',2200);}catch(e){e.code='ZOOM_BLACK';throw e;}}}
         else{state.cameraZoomLabel='原始視角';state.cameraZoomApplied=false;updateCameraZoomLabels();}
-        const s=track?.getSettings?.()||{};startCameraStamp();if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=false;state.cameraFrameVerified=true;setCameraLiveBadge('● 鏡頭已開啟','live');if($('openCameraBtn'))$('openCameraBtn').hidden=true;status($('flowStatus'),`鏡頭已確認有即時影像｜${s.width||v.videoWidth}×${s.height||v.videoHeight}｜${esc(candidate.label||'可用鏡頭')}。現在才可拍照。`,'ok');return true;
+        const s=track?.getSettings?.()||{};const actualId=String(s.deviceId||candidate.deviceId||'');if(actualId){state.preferredCameraDeviceId=actualId;await refreshCameraDevices();state.cameraDeviceIndex=state.cameraDeviceIds.indexOf(actualId);}
+        state.cameraDeviceLabel=String(track?.label||candidate.label||'可用鏡頭');
+        startCameraStamp();if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=false;state.cameraFrameVerified=true;setCameraLiveBadge('● 鏡頭已開啟','live');if($('openCameraBtn'))$('openCameraBtn').hidden=true;status($('flowStatus'),`鏡頭已確認有即時影像｜${s.width||v.videoWidth}×${s.height||v.videoHeight}｜${esc(state.cameraDeviceLabel)}。若影像不正確，可按「切換實體鏡頭」。`,'ok');return true;
       }catch(e){lastErr=e;stopCamera();$('cameraWrap').hidden=false;enterCameraFullscreen();if($('cameraLoading'))$('cameraLoading').hidden=false;setCameraLiveBadge('切換下一個鏡頭','checking');
-        // After the first permission grant/failure, enumerate again: browsers often reveal all physical camera IDs only then.
-        if(attempt===0){try{const devices=await navigator.mediaDevices?.enumerateDevices?.();(Array.isArray(devices)?devices:[]).filter(d=>d&&d.kind==='videoinput'&&d.deviceId).forEach((d,i)=>{if(!candidates.some(x=>x.deviceId===d.deviceId))candidates.push({label:d.label||`實體鏡頭 ${i+1}`,deviceId:d.deviceId,video:{deviceId:{exact:d.deviceId}}});});}catch(_e){}}
-        if(attempt<candidates.length-1){status($('flowStatus'),`${candidate.label||'目前鏡頭'} 無可用影像，正在自動改試下一個相機…`);await new Promise(r=>setTimeout(r,180));}}
+        if(attempt===0){try{const cams=await refreshCameraDevices();cams.forEach((d,i)=>{if(!candidates.some(x=>x.deviceId===d.deviceId))candidates.push({label:d.label||`實體鏡頭 ${i+1}`,deviceId:d.deviceId,video:{deviceId:{exact:d.deviceId}}});});}catch(_e){}}
+        if(attempt<candidates.length-1){status($('flowStatus'),`${candidate.label||'目前鏡頭'} 是黑屏或沒有可用影像，正在自動改試下一個相機…`);await new Promise(r=>setTimeout(r,180));}}
     }
-    if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=true;const msg=String(lastErr?.message||'');const denied=/NotAllowed|Permission|denied/i.test(msg);const text=denied?'相機權限被拒絕。請允許相機權限後重試。':'已逐一嘗試可用相機，但仍沒有取得真正影像。請確認電腦沒有選到黑屏的虛擬鏡頭，或改用系統相機。';status($('flowStatus'),text,'error');showCameraFallback(text);if($('openCameraBtn'))$('openCameraBtn').hidden=false;return false;
+    if($('cameraLoading'))$('cameraLoading').hidden=true;$('cameraActions').hidden=true;const msg=String(lastErr?.message||'');const denied=/NotAllowed|Permission|denied/i.test(msg);const text=denied?'相機權限被拒絕。請允許相機權限後重試。':'已逐一嘗試可用相機，但仍沒有取得真正影像。若電腦有多個鏡頭／虛擬鏡頭，請關閉其他相機軟體後重試。';status($('flowStatus'),text,'error');showCameraFallback(text);if($('openCameraBtn'))$('openCameraBtn').hidden=false;return false;
   }
-  async function switchCamera(){state.facing=state.facing==='user'?'environment':'user';await startCamera();}
+  async function switchCamera(){
+    if(isIOSDevice()){state.facing=state.facing==='user'?'environment':'user';return startCamera();}
+    const cams=await refreshCameraDevices();
+    if(cams.length>1){
+      let ix=state.cameraDeviceIds.indexOf(state.preferredCameraDeviceId);if(ix<0)ix=state.cameraDeviceIndex;ix=(Number(ix)+1+cams.length)%cams.length;
+      state.cameraDeviceIndex=ix;state.preferredCameraDeviceId=String(cams[ix].deviceId||'');state.cameraDeviceLabel=String(cams[ix].label||`實體鏡頭 ${ix+1}`);
+      status($('flowStatus'),`正在切換到 ${state.cameraDeviceLabel}…`);return startCamera();
+    }
+    state.facing=state.facing==='user'?'environment':'user';return startCamera();
+  }
   function wrapText(ctx,text,maxWidth){const chars=Array.from(String(text||'')),lines=[];let line='';chars.forEach(ch=>{const test=line+ch;if(ctx.measureText(test).width>maxWidth&&line){lines.push(line);line=ch;}else line=test;});if(line)lines.push(line);return lines.slice(0,3);}
   async function waitForVideoFrame(v){
     if(v.readyState<2||!v.videoWidth||!v.videoHeight){await new Promise((resolve,reject)=>{let done=false;const ok=()=>{if(done)return;done=true;cleanup();resolve();},bad=()=>{if(done)return;done=true;cleanup();reject(new Error('相機影像尚未準備完成'));},cleanup=()=>{v.removeEventListener('loadeddata',ok);v.removeEventListener('error',bad);clearTimeout(tm);};v.addEventListener('loadeddata',ok,{once:true});v.addEventListener('error',bad,{once:true});const tm=setTimeout(bad,2500);});}
     if(typeof v.requestVideoFrameCallback==='function')await new Promise(resolve=>{let settled=false;const tm=setTimeout(()=>{if(!settled){settled=true;resolve();}},350);v.requestVideoFrameCallback(()=>{if(!settled){settled=true;clearTimeout(tm);resolve();}});});else await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
   }
   function drawVideoFrame(ctx,v,w,h){ctx.save();if(state.facing==='user'){ctx.translate(w,0);ctx.scale(-1,1);}ctx.drawImage(v,0,0,w,h);ctx.restore();}
-  function canvasLooksBlank(ctx,w,h){try{const pts=[[.2,.2],[.5,.2],[.8,.2],[.2,.5],[.5,.5],[.8,.5],[.2,.8],[.5,.8],[.8,.8]];let total=0,max=0;for(const [px,py] of pts){const d=ctx.getImageData(Math.max(0,Math.min(w-1,Math.floor(w*px))),Math.max(0,Math.min(h-1,Math.floor(h*py))),1,1).data;const v=d[0]+d[1]+d[2];total+=v;if(v>max)max=v;}return max<12&&total<50;}catch(_e){return false;}}
+  function canvasLooksBlank(ctx,w,h){try{const pts=[[.15,.15],[.35,.18],[.55,.16],[.8,.2],[.2,.42],[.5,.45],[.78,.48],[.18,.72],[.48,.76],[.8,.78]];let sum=0,max=0,min=765;for(const [px,py] of pts){const d=ctx.getImageData(Math.max(0,Math.min(w-1,Math.floor(w*px))),Math.max(0,Math.min(h-1,Math.floor(h*py))),1,1).data;const v=Number(d[0])+Number(d[1])+Number(d[2]);sum+=v;max=Math.max(max,v);min=Math.min(min,v);}const mean=sum/pts.length;return max<18||(mean<66&&max<126&&(max-min)<90);}catch(_e){return false;}}
   function openConfirm(id){const el=$(id);if(el){el.hidden=false;document.body.classList.add('modal-open');const b=el.querySelector('button[data-autofocus]');if(b)setTimeout(()=>b.focus(),20);}}
   function closeConfirm(id){const el=$(id);if(el)el.hidden=true;if(!document.querySelector('.confirm-overlay:not([hidden])'))document.body.classList.remove('modal-open');}
   function showPhotoReviewOverlay(){
@@ -827,40 +853,28 @@
   function roundedRectPath(ctx,x,y,w,h,r){const rr=Math.max(0,Math.min(r,Math.min(w,h)/2));ctx.beginPath();ctx.moveTo(x+rr,y);ctx.arcTo(x+w,y,x+w,y+h,rr);ctx.arcTo(x+w,y+h,x,y+h,rr);ctx.arcTo(x,y+h,x,y,rr);ctx.arcTo(x,y,x+w,y,rr);ctx.closePath();}
   function drawPill(ctx,x,y,w,h,fill,stroke,text,font,color){ctx.save();roundedRectPath(ctx,x,y,w,h,h/2);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();}ctx.font=font;ctx.fillStyle=color;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,x+w/2,y+h/2+0.5);ctx.restore();}
   function drawAttendanceStamp(ctx,w,h,now){
-    const type=state.type||'上班';
-    const isOff=type==='下班';
-    const theme=isOff?{accent1:'#ffd36c',accent2:'#dd933d',pillFill:'rgba(255,211,108,.14)',pillStroke:'rgba(255,211,108,.40)',pin:'#ffd36c'}:{accent1:'#8bf397',accent2:'#4fc864',pillFill:'rgba(139,243,151,.14)',pillStroke:'rgba(139,243,151,.40)',pin:'#8bf397'};
-    const pad=Math.max(24,Math.round(w*.028));
-    const panelH=Math.max(236,Math.round(h*.255));
-    const x=pad,y=h-panelH-pad,panelW=w-pad*2,radius=Math.max(19,Math.round(w*.022));
-    ctx.save();
-    roundedRectPath(ctx,x,y,panelW,panelH,radius);
-    const bg=ctx.createLinearGradient(0,y,0,y+panelH);bg.addColorStop(0,'rgba(6,18,12,.88)');bg.addColorStop(.58,'rgba(8,25,17,.83)');bg.addColorStop(1,'rgba(6,18,12,.76)');
-    ctx.fillStyle=bg;ctx.fill();ctx.strokeStyle='rgba(255,255,255,.11)';ctx.lineWidth=1;ctx.stroke();
-    const ag=ctx.createLinearGradient(x,y,x,y+panelH);ag.addColorStop(0,theme.accent1);ag.addColorStop(1,theme.accent2);ctx.fillStyle=ag;roundedRectPath(ctx,x,y,5,panelH,radius);ctx.fill();
-    const inner=x+Math.max(21,Math.round(w*.023));
-    const innerW=panelW-Math.max(42,Math.round(w*.047));
-    let cy=y+Math.max(17,Math.round(w*.019));
-    const logo=stampAssets.nameLogo,logoH=Math.max(28,Math.round(w*.044)),maxLogoW=Math.min(innerW*.58,Math.round(w*.46));
-    if(logo&&logo.complete&&logo.naturalWidth){const ratio=logo.naturalWidth/logo.naturalHeight||1,drawW=Math.min(maxLogoW,logoH*ratio),drawH=drawW/ratio;ctx.drawImage(logo,inner,cy,drawW,drawH);}else{ctx.fillStyle='#fff';ctx.font=`700 ${Math.max(24,Math.round(w*.034))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText(CFG.farmName||'王泰山畜牧場',inner,cy);}
-    const badgeText=`${type}打卡`,badgeFont=`900 ${Math.max(14,Math.round(w*.019))}px sans-serif`;ctx.font=badgeFont;const badgeW=Math.min(innerW*.29,Math.max(88,ctx.measureText(badgeText).width+Math.max(24,Math.round(w*.024)))),badgeX=x+panelW-badgeW-Math.max(18,Math.round(w*.02));
-    drawPill(ctx,badgeX,cy,badgeW,Math.max(30,Math.round(w*.037)),theme.pillFill,theme.pillStroke,badgeText,badgeFont,'#fff');
-    cy+=Math.max(44,Math.round(w*.058));
-    ctx.fillStyle='rgba(255,255,255,.58)';ctx.font=`800 ${Math.max(12,Math.round(w*.0165))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('定位自拍打卡紀錄',inner,cy);
-    cy+=Math.max(17,Math.round(w*.026));
-    ctx.fillStyle='#fff';ctx.font=`950 ${Math.max(44,Math.round(w*.074))}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;ctx.fillText(now.time,inner,cy);
-    cy+=Math.max(59,Math.round(w*.082));
-    ctx.fillStyle='rgba(255,255,255,.92)';ctx.font=`750 ${Math.max(16,Math.round(w*.022))}px sans-serif`;ctx.fillText(`${now.date}｜台灣時間`,inner,cy);
-    cy+=Math.max(28,Math.round(w*.036));
-    const emp=state.employee?.name||state.employee?.id||'員工';const empId=String(state.employee?.id||state.employee?.employeeId||'').trim();const dept=String(state.employee?.department||'').trim();
-    const personLine=empId&&empId!==emp?`${emp}｜${empId}`:emp;
-    ctx.fillStyle='#fff';ctx.font=`900 ${Math.max(18,Math.round(w*.024))}px sans-serif`;ctx.fillText(personLine,inner,cy);
-    if(dept){ctx.font=`800 ${Math.max(14,Math.round(w*.0185))}px sans-serif`;const deptW=Math.min(innerW*.36,Math.max(80,ctx.measureText(dept).width+22));drawPill(ctx,x+panelW-deptW-Math.max(18,Math.round(w*.02)),cy-3,deptW,Math.max(27,Math.round(w*.034)),'rgba(255,255,255,.09)','rgba(255,255,255,.10)',dept,ctx.font,'rgba(255,255,255,.94)');}
-    cy+=Math.max(34,Math.round(w*.043));
-    ctx.strokeStyle='rgba(255,255,255,.08)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(inner,cy-4);ctx.lineTo(inner+innerW,cy-4);ctx.stroke();
-    const pinX=inner+6,pinY=cy+9;ctx.save();ctx.translate(pinX,pinY);ctx.rotate(-Math.PI/4);ctx.fillStyle=theme.pin;ctx.beginPath();ctx.moveTo(0,-6);ctx.arcTo(6,-6,6,0,6);ctx.arcTo(6,6,0,6,6);ctx.arcTo(0,6,-6,6,6);ctx.arcTo(-6,6,-6,0,6);ctx.arcTo(-6,-6,0,-6,6);ctx.closePath();ctx.fill();ctx.fillStyle='rgba(6,18,12,.82)';ctx.beginPath();ctx.arc(0,0,2.5,0,Math.PI*2);ctx.fill();ctx.restore();
-    ctx.fillStyle='rgba(255,255,255,.86)';ctx.font=`500 ${Math.max(15,Math.round(w*.0205))}px sans-serif`;wrapText(ctx,state.locationLabel||'未取得定位地址',innerW-24).slice(0,2).forEach((line,i)=>ctx.fillText(line,inner+20,cy+i*Math.max(22,Math.round(w*.029))));
-    ctx.restore();
+    const type=state.type||'上班',isOff=type==='下班';
+    const theme=isOff?{accent1:'#ffd36c',accent2:'#dd933d',pillFill:'rgba(255,211,108,.16)',pillStroke:'rgba(255,211,108,.48)',pin:'#ffd36c'}:{accent1:'#8bf397',accent2:'#4fc864',pillFill:'rgba(139,243,151,.16)',pillStroke:'rgba(139,243,151,.48)',pin:'#8bf397'};
+    const pad=Math.max(22,Math.round(w*.026)),panelH=Math.max(300,Math.round(h*.31)),x=pad,y=Math.max(pad,h-panelH-pad),panelW=w-pad*2,radius=Math.max(22,Math.round(w*.024));
+    ctx.save();roundedRectPath(ctx,x,y,panelW,panelH,radius);const bg=ctx.createLinearGradient(0,y,0,y+panelH);bg.addColorStop(0,'rgba(5,17,11,.92)');bg.addColorStop(.6,'rgba(8,25,17,.87)');bg.addColorStop(1,'rgba(6,18,12,.82)');ctx.fillStyle=bg;ctx.fill();ctx.strokeStyle='rgba(255,255,255,.13)';ctx.lineWidth=Math.max(1,Math.round(w*.0015));ctx.stroke();
+    const ag=ctx.createLinearGradient(x,y,x,y+panelH);ag.addColorStop(0,theme.accent1);ag.addColorStop(1,theme.accent2);ctx.fillStyle=ag;roundedRectPath(ctx,x,y,Math.max(6,Math.round(w*.007)),panelH,radius);ctx.fill();
+    const inner=x+Math.max(24,Math.round(w*.026)),right=x+panelW-Math.max(22,Math.round(w*.024)),innerW=right-inner;let cy=y+Math.max(19,Math.round(w*.021));
+    const icon=stampAssets.iconLogo,iconSize=Math.max(48,Math.round(w*.064));
+    if(icon&&icon.complete&&icon.naturalWidth){ctx.save();roundedRectPath(ctx,inner,cy,iconSize,iconSize,iconSize/2);ctx.clip();ctx.drawImage(icon,inner,cy,iconSize,iconSize);ctx.restore();}
+    const nameX=inner+(icon&&icon.complete&&icon.naturalWidth?iconSize+Math.max(12,Math.round(w*.014)):0),nameAvail=Math.max(120,right-nameX-Math.max(98,Math.round(w*.18)));
+    const logo=stampAssets.nameLogo,logoH=Math.max(36,Math.round(w*.052));
+    if(logo&&logo.complete&&logo.naturalWidth){const ratio=logo.naturalWidth/logo.naturalHeight||1,drawW=Math.min(nameAvail,logoH*ratio),drawH=drawW/ratio;ctx.drawImage(logo,nameX,cy+(iconSize-drawH)/2,drawW,drawH);}else{ctx.fillStyle='#fff';ctx.font=`800 ${Math.max(26,Math.round(w*.036))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(CFG.farmName||'王泰山畜牧場',nameX,cy+iconSize/2);}
+    const badgeText=`${type}打卡`,badgeFont=`900 ${Math.max(15,Math.round(w*.0195))}px sans-serif`;ctx.font=badgeFont;const badgeW=Math.max(92,ctx.measureText(badgeText).width+Math.max(28,Math.round(w*.028))),badgeH=Math.max(34,Math.round(w*.040));drawPill(ctx,right-badgeW,cy+(iconSize-badgeH)/2,badgeW,badgeH,theme.pillFill,theme.pillStroke,badgeText,badgeFont,'#fff');
+    cy+=iconSize+Math.max(11,Math.round(w*.014));ctx.fillStyle='rgba(255,255,255,.64)';ctx.font=`850 ${Math.max(13,Math.round(w*.017))}px sans-serif`;ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('定位自拍打卡紀錄',inner,cy);
+    cy+=Math.max(23,Math.round(w*.028));ctx.fillStyle='#fff';ctx.font=`950 ${Math.max(48,Math.round(w*.079))}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;ctx.fillText(now.time,inner,cy);
+    ctx.font=`850 ${Math.max(14,Math.round(w*.018))}px sans-serif`;ctx.textAlign='right';ctx.fillStyle='rgba(255,255,255,.75)';ctx.fillText('台灣時間',right,cy+Math.max(18,Math.round(w*.027)));ctx.textAlign='left';
+    cy+=Math.max(65,Math.round(w*.086));ctx.fillStyle='rgba(255,255,255,.94)';ctx.font=`800 ${Math.max(17,Math.round(w*.0225))}px sans-serif`;ctx.fillText(now.date,inner,cy);
+    cy+=Math.max(31,Math.round(w*.038));const emp=state.employee?.name||state.employee?.id||'員工',empId=String(state.employee?.id||state.employee?.employeeId||'').trim(),dept=String(state.employee?.department||'').trim(),personLine=empId&&empId!==emp?`${emp}｜${empId}`:emp;
+    ctx.fillStyle='#fff';ctx.font=`950 ${Math.max(20,Math.round(w*.027))}px sans-serif`;ctx.textAlign='left';ctx.fillText(personLine,inner,cy);
+    if(dept){ctx.font=`850 ${Math.max(15,Math.round(w*.019))}px sans-serif`;const deptW=Math.min(innerW*.38,Math.max(88,ctx.measureText(dept).width+26));drawPill(ctx,right-deptW,cy-4,deptW,Math.max(30,Math.round(w*.036)),'rgba(255,255,255,.10)','rgba(255,255,255,.12)',dept,ctx.font,'rgba(255,255,255,.96)');}
+    cy+=Math.max(40,Math.round(w*.047));ctx.strokeStyle='rgba(255,255,255,.11)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(inner,cy-6);ctx.lineTo(right,cy-6);ctx.stroke();
+    const pinX=inner+7,pinY=cy+10;ctx.save();ctx.translate(pinX,pinY);ctx.rotate(-Math.PI/4);ctx.fillStyle=theme.pin;ctx.beginPath();ctx.moveTo(0,-7);ctx.arcTo(7,-7,7,0,7);ctx.arcTo(7,7,0,7,7);ctx.arcTo(0,7,-7,7,7);ctx.arcTo(-7,7,-7,0,7);ctx.arcTo(-7,-7,0,-7,7);ctx.closePath();ctx.fill();ctx.fillStyle='rgba(6,18,12,.84)';ctx.beginPath();ctx.arc(0,0,3,0,Math.PI*2);ctx.fill();ctx.restore();
+    ctx.fillStyle='rgba(255,255,255,.90)';ctx.font=`600 ${Math.max(16,Math.round(w*.0215))}px sans-serif`;ctx.textAlign='left';wrapText(ctx,state.locationLabel||'未取得定位地址',innerW-28).slice(0,2).forEach((line,i)=>ctx.fillText(line,inner+23,cy+i*Math.max(25,Math.round(w*.031))));ctx.restore();
   }
 
   async function takePhoto(){
@@ -981,7 +995,7 @@
     try{
       const d=await probeBridgeVersion();
       const remote=String(d.version||'未提供版本');
-      const current=String(CFG.version||'W456_FIX392_CLEAN');
+      const current=String(CFG.version||'W456_FIX392_R5_CLEAN');
       const note=remote!==current?`｜線上橋接 ${remote}（登入核心相容；不阻擋登入）`:'';
       status($('setupStatus'),`雲端橋接正常｜${remote}｜${d.now||'已收到 Apps Script 回傳'}${note}`,'ok');
     }

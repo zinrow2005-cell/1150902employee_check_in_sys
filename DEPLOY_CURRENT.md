@@ -1,11 +1,11 @@
 # CURRENT DEPLOYMENT
 
 - Main system runtime / data schema: **W456 FIX392 / 392**
-- Employee portal: **W456 FIX392-R4**
-- Apps Script protocol: **W456_FIX392_CLEAN**
-- Mobile login: stale device `/exec` auto-repair on unknown-action / timeout.
-- Camera: desktop/non-iOS cycles default + facingMode + physical deviceId and rejects black streams.
-- Schedule: personal roster + monthly batch major work shown together.
-- Employee requests: main-system manager pages perform lightweight request polling and show pending/new-request notifications.
+- Employee portal: **W456 FIX392-R5**
+- Apps Script protocol: **W456_FIX392_R5_CLEAN**
+- Punch return: manager shell performs a lightweight attendance-only pull every 30 seconds on all pages; the attendance page can still run the full sync manually.
+- Camera: desktop/non-iOS rejects flat near-black virtual-camera frames and cycles actual physical `deviceId` cameras.
+- Photo stamp: larger farm icon/name/time/employee/location layout on phone and desktop without the former full-width desktop stamp.
+- Employee requests: preleave / leave / roster change / punch correction / overtime continue through the global request bridge.
 
-If the screen does not show `W456 FIX392-R4`, the browser/PWA is still using an older GitHub build.
+If the screen does not show `W456 FIX392-R5`, the browser/PWA is still using an older GitHub build.
