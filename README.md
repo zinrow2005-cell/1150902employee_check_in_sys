@@ -1,3 +1,3 @@
-# 王泰山畜牧場｜GitHub 員工自助端 W455 FIX391
+# 王泰山畜牧場 GitHub 員工自助端
 
-本版會在登入與讀取自助資料前核對 Apps Script 是否為 `W455_FIX391_CLEAN`；舊部署、無版本號或尚未初始化時會阻擋並顯示原因。既有打卡、請假、班表、批次重大工作與薪資功能維持。
+目前版本：W456 FIX392。登入前使用 clientHandshake 驗證 Apps Script 版本；裝置自訂 /exec 優先於 bundled config.js。

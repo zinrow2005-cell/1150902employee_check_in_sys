@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W455 FIX391 | batch-work single center; personal task assignment/reporting retired.
+  // W456 FIX392 | batch-work single center; personal task assignment/reporting retired.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -58,15 +58,19 @@
     try{for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i)||'';if(key.startsWith('wts_att_bridge_url_')&&key!==BRIDGE_STORAGE_KEY)localStorage.removeItem(key);}}catch(_e){}
   }
   purgeRetiredBridgeStorage();
-  let bridgeUrl='';
-  // The checked-in config.js is authoritative on every reload. Device-local values cannot override it.
-  try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}
+  let bridgeUrl='',bridgeSource='';
+  // FIX392: device/query URL wins. The prior FIX391 logic always forced config.js and deleted
+  // the device override on reload, so a newly-created Apps Script deployment could never stick.
+  const queryBridge=bridgeFromQuery();
+  if(queryBridge){bridgeUrl=queryBridge;bridgeSource='網址參數／本機設定';}
   if(!bridgeUrl){
-    const queryBridge=bridgeFromQuery();
-    if(queryBridge)bridgeUrl=queryBridge;
+    try{const saved=normalizeBridgeUrl(localStorage.getItem(BRIDGE_STORAGE_KEY)||'');if(saved){bridgeUrl=saved;bridgeSource='這台裝置';}}
+    catch(_e){try{localStorage.removeItem(BRIDGE_STORAGE_KEY);}catch(__e){}}
   }
-  if(!bridgeUrl){try{bridgeUrl=normalizeBridgeUrl(localStorage.getItem(BRIDGE_STORAGE_KEY)||'');}catch(_e){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';}}
-  if(CFG.bridgeUrl){try{localStorage.removeItem(BRIDGE_STORAGE_KEY);}catch(_e){}}
+  if(!bridgeUrl){try{const bundled=normalizeBridgeUrl(CFG.bridgeUrl||'');if(bundled){bridgeUrl=bundled;bridgeSource='GitHub config.js 預設';}}catch(_e){bridgeUrl='';}}
+  function bridgeEndpointLabel(){
+    try{const m=String(bridgeUrl||'').match(/\/macros\/s\/([^/]+)\/exec/i),id=m&&m[1]?m[1]:'';return id?`…${id.slice(-10)}/exec`:'未設定';}catch(_e){return '未設定';}
+  }
   function bridgeConfigIssue(){
     if(!bridgeUrl)return '尚未設定 Apps Script Web App 網址。請點「橋接設定」，直接貼上正式 /exec 網址。';
     return '';
@@ -92,7 +96,7 @@
     if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error('雲端橋接逾時：Apps Script 沒有回傳結果。請確認目前正式版 Code.gs 已部署為新版本；重送同一筆不會重複記錄。'));},timeoutMs);
+      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error(`雲端橋接逾時：目前使用 ${bridgeEndpointLabel()}，Apps Script 沒有回傳結果。請確認這個 /exec 就是你剛部署的 Web App，且存取權限允許員工手機直接開啟。`));},timeoutMs);
       pending.set(requestId,{resolve,reject,timer});
       const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});
@@ -101,9 +105,9 @@
     });
   }
   async function verifyBridgeVersion(){
-    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W455_FIX391_CLEAN'),cached:true};
-    const expected=String(CFG.version||'W455_FIX391_CLEAN');
-    const d=await postBridge('health',{},10000);
+    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W456_FIX392_CLEAN'),cached:true};
+    const expected=String(CFG.version||'W456_FIX392_CLEAN');
+    const d=await postBridge('clientHandshake',{},10000);
     const remote=String(d.version||'').trim();
     if(!remote)throw new Error(`Apps Script 有回應，但沒有版本號；目前很可能仍是舊部署。請重新部署 ${expected} Code.gs。`);
     if(remote!==expected)throw new Error(`Apps Script 版本不一致：線上是 ${remote}，員工端需要 ${expected}。請先建立新版部署。`);
@@ -892,7 +896,7 @@
     catch(e){status($('flowStatus'),e.message,'error');}
     finally{state.busy=false;$('submitPunchBtn').disabled=false;}
   }
-  function refreshBridgeSetup(){const issue=bridgeConfigIssue();const panel=$('setupPanel');const input=$('bridgeUrlInput');if(input&&!input.matches(':focus'))input.value=bridgeUrl||'';if(issue){panel.hidden=false;const el=$('setupMessage');if(el)el.textContent=issue;status($('loginStatus'),issue,'error');}else{const src=$('bridgeSourceText');if(src)src.textContent='橋接網址已設定在這台裝置。若主系統內附 config.js 也有預設網址，這台裝置的設定會優先使用。';if($('loginStatus').textContent.includes('尚未設定'))status($('loginStatus'),'','');}}
+  function refreshBridgeSetup(){const issue=bridgeConfigIssue();const panel=$('setupPanel');const input=$('bridgeUrlInput');if(input&&!input.matches(':focus'))input.value=bridgeUrl||'';if(issue){panel.hidden=false;const el=$('setupMessage');if(el)el.textContent=issue;status($('loginStatus'),issue,'error');}else{const src=$('bridgeSourceText');if(src)src.textContent=`目前橋接：${bridgeEndpointLabel()}｜來源：${bridgeSource||'未知'}。這台裝置儲存的 /exec 會優先於 GitHub config.js，重新整理後也不會被覆蓋。`;if($('loginStatus').textContent.includes('尚未設定'))status($('loginStatus'),'','');}}
 
   async function testBridge(){
     if(!bridgeReady()){status($('setupStatus'),bridgeConfigIssue(),'error');return;}
@@ -904,8 +908,8 @@
     catch(e){status($('setupStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}
   }
-  function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;state.bridgeVersionVerified=false;status($('setupStatus'),'橋接網址已儲存。現在可以直接登入打卡。','ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},700);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
-  function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';state.bridgeVersionVerified=false;try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?'已清除這台裝置的自訂網址，改用 GitHub config.js 預設網址。':'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
+  function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;bridgeSource='這台裝置';state.bridgeVersionVerified=false;status($('setupStatus'),`橋接網址已儲存｜${bridgeEndpointLabel()}。重新整理後仍會使用這個網址。`,'ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},900);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
+  function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';bridgeSource='';state.bridgeVersionVerified=false;try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');if(bridgeUrl)bridgeSource='GitHub config.js 預設';}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?`已清除這台裝置的自訂網址，改用 ${bridgeEndpointLabel()}。`:'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});
