@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W449 FIX385 | batch-work single center; personal task assignment/reporting retired.
+  // W451 FIX387 | batch-work single center; personal task assignment/reporting retired.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -40,7 +40,7 @@
     return exp;
   }
   const persistedLogin=savedLogin();
-  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false,editingLeaveRequestId:'',editingLeaveSourceStatus:'',editingLeaveTypeCode:'',leaveStartDatePrevious:''};
+  const state={employee:persistedLogin?.employee||null,token:persistedLogin?.token||'',sessionExpiresAt:persistedLogin?.expiresAt||0,type:'',location:null,locationLabel:'',stream:null,facing:'user',photoBlob:null,photoUrl:'',photoTakenAt:'',lineShared:false,lineShareMethod:'',busy:false,cameraStampTimer:null,shareBusy:false,lastShareAttemptAt:0,portal:null,portalBusy:false,portalView:'home',scheduleSelectedDate:'',workPlanDepartment:'',payslip:null,cameraZoomLabel:'最廣',cameraStartSeq:0,cameraFrameVerified:false,cameraZoomApplied:false,bridgeVersionVerified:false,editingLeaveRequestId:'',editingLeaveSourceStatus:'',editingLeaveTypeCode:'',leaveStartDatePrevious:''};
   const pending=new Map();
   const BRIDGE_CHANNEL='wts-attendance-bridge';
   const BRIDGE_STORAGE_KEY='wts_att_bridge_url_current';
@@ -100,6 +100,17 @@
       document.body.appendChild(form);form.submit();setTimeout(()=>form.remove(),500);
     });
   }
+  async function verifyBridgeVersion(){
+    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W451_FIX387_CLEAN'),cached:true};
+    const expected=String(CFG.version||'W451_FIX387_CLEAN');
+    const d=await postBridge('health',{},10000);
+    const remote=String(d.version||'').trim();
+    if(!remote)throw new Error(`Apps Script 有回應，但沒有版本號；目前很可能仍是舊部署。請重新部署 ${expected} Code.gs。`);
+    if(remote!==expected)throw new Error(`Apps Script 版本不一致：線上是 ${remote}，員工端需要 ${expected}。請先建立新版部署。`);
+    if(d.initialized===false)throw new Error('Apps Script 尚未完成初始化，請先執行 SETUP_ATTENDANCE_BRIDGE。');
+    state.bridgeVersionVerified=true;
+    return d;
+  }
   window.addEventListener('message',ev=>{
     const d=ev.data;if(!d||d.channel!==BRIDGE_CHANNEL||!d.requestId)return;
     const p=pending.get(d.requestId);if(!p)return;clearTimeout(p.timer);pending.delete(d.requestId);d.ok?p.resolve(d):p.reject(new Error(d.message||'雲端橋接失敗'));
@@ -121,7 +132,7 @@
     if(state.busy)return;const id=$('employeeId').value.trim();const pin=$('employeePin').value.trim();
     if(!id||!pin){status($('loginStatus'),'請輸入員工編號與打卡 PIN。','error');return;}
     state.busy=true;$('loginBtn').disabled=true;status($('loginStatus'),'正在驗證員工身分…');
-    try{const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;state.sessionExpiresAt=storeSavedLogin(state.token,state.employee,Number(d.sessionExpiresAtMs)||Date.now()+LOGIN_REMEMBER_MS);localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();}
+    try{await verifyBridgeVersion();const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;state.sessionExpiresAt=storeSavedLogin(state.token,state.employee,Number(d.sessionExpiresAtMs)||Date.now()+LOGIN_REMEMBER_MS);localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();}
     catch(e){status($('loginStatus'),e.message,'error');}
     finally{state.busy=false;$('loginBtn').disabled=false;}
   }
@@ -283,7 +294,7 @@
     if(!state.token||state.portalBusy)return;state.portalBusy=true;
     if($('portalStatusBadge'))$('portalStatusBadge').textContent='同步中';
     try{
-      const d=await postBridge('portalData',{sessionToken:state.token},15000);state.portal=d.portal||{};renderPortalData();
+      await verifyBridgeVersion();const d=await postBridge('portalData',{sessionToken:state.token},15000);state.portal=d.portal||{};renderPortalData();
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='已同步';
       setPortalSyncSuccess(state.portal.updatedAt||d.serverNow||'');
     }catch(e){
@@ -886,12 +897,15 @@
   async function testBridge(){
     if(!bridgeReady()){status($('setupStatus'),bridgeConfigIssue(),'error');return;}
     const btn=$('testBridgeBtn');if(btn)btn.disabled=true;status($('setupStatus'),'正在測試 Apps Script 回傳…');
-    try{const d=await postBridge('health',{},10000);status($('setupStatus'),`雲端橋接正常｜${d.version||'版本未知'}｜${d.now||'已收到 Apps Script 回傳'}`,'ok');}
+    try{
+      const d=await verifyBridgeVersion();
+      status($('setupStatus'),`雲端橋接正常｜${d.version}｜${d.now||'已收到 Apps Script 回傳'}`,'ok');
+    }
     catch(e){status($('setupStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}
   }
-  function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;status($('setupStatus'),'橋接網址已儲存。現在可以直接登入打卡。','ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},700);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
-  function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?'已清除這台裝置的自訂網址，改用 GitHub config.js 預設網址。':'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
+  function saveBridgeSetup(){try{const n=normalizeBridgeUrl($('bridgeUrlInput').value);localStorage.setItem(BRIDGE_STORAGE_KEY,n);bridgeUrl=n;state.bridgeVersionVerified=false;status($('setupStatus'),'橋接網址已儲存。現在可以直接登入打卡。','ok');refreshBridgeSetup();setTimeout(()=>{$('setupPanel').hidden=true;},700);}catch(e){status($('setupStatus'),e.message||String(e),'error');}}
+  function clearBridgeSetup(){localStorage.removeItem(BRIDGE_STORAGE_KEY);bridgeUrl='';state.bridgeVersionVerified=false;try{bridgeUrl=normalizeBridgeUrl(CFG.bridgeUrl||'');}catch(_e){bridgeUrl='';}status($('setupStatus'),bridgeUrl?'已清除這台裝置的自訂網址，改用 GitHub config.js 預設網址。':'已清除這台裝置的橋接網址。','ok');refreshBridgeSetup();}
   refreshBridgeSetup();
   $('setupToggleBtn').addEventListener('click',()=>{$('setupPanel').hidden=!$('setupPanel').hidden;if(!$('setupPanel').hidden){$('bridgeUrlInput').value=bridgeUrl||'';setTimeout(()=>$('bridgeUrlInput').focus(),50);}});
   $('saveBridgeBtn').addEventListener('click',saveBridgeSetup);$('testBridgeBtn').addEventListener('click',testBridge);$('clearBridgeBtn').addEventListener('click',clearBridgeSetup);$('bridgeUrlInput').addEventListener('keydown',e=>{if(e.key==='Enter')saveBridgeSetup();});

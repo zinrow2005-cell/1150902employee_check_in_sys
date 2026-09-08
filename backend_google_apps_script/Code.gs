@@ -1,5 +1,5 @@
 /**
- * W449 FIX385 CLEAN｜王泰山畜牧場員工自助中心｜工作項目同步 JSON 強化橋接
+ * W451 FIX387 CLEAN｜王泰山畜牧場員工自助中心｜連線／版本／SYNC_KEY 診斷橋接
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W449_FIX385_CLEAN';
+const BRIDGE_VERSION = 'W451_FIX387_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -119,6 +119,7 @@ function setupAttendanceBridge() {
   ensureNamedSheet_(ss, PORTAL_SHEET, PORTAL_HEADERS);
   ensureNamedSheet_(ss, PORTAL_REQUEST_SHEET, PORTAL_REQUEST_HEADERS);
   ensureNamedSheet_(ss, PORTAL_PAYSLIP_SHEET, PORTAL_PAYSLIP_HEADERS);
+  ensureNamedSheet_(ss, PORTAL_WORK_PLAN_SHEET, PORTAL_WORK_PLAN_HEADERS);
 
   if (!props.getProperty('SYNC_KEY')) {
     props.setProperty('SYNC_KEY', makeSyncKey_());
@@ -159,12 +160,17 @@ function makeSyncKey_() {
 function doGet(e) {
   const action = String((e && e.parameter && e.parameter.action) || 'health');
   if (action === 'health') {
+    const props = PropertiesService.getScriptProperties();
+    const configuredKey = String(props.getProperty('SYNC_KEY') || '');
+    const suppliedKey = String((e && e.parameter && e.parameter.syncKey) || '');
     return json_({
       ok:true,
       service:'WTS attendance bridge',
       version:BRIDGE_VERSION,
       timezone:TAIPEI_TZ,
       initialized:isInitialized_(),
+      syncKeyConfigured:!!configuredKey,
+      syncKeyValid:suppliedKey ? suppliedKey === configuredKey : null,
       now:isoNow_()
     });
   }
@@ -186,7 +192,7 @@ function doPost(e) {
   const requestId = String(p.requestId || '');
   try {
     if (action === 'health') {
-      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
+      return json_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
     }
     if (action === 'export') {
       const props = PropertiesService.getScriptProperties();
@@ -244,6 +250,36 @@ function doPost(e) {
 
 function managerSyncKeyOk_(value) {
   return String(value || '') === String(PropertiesService.getScriptProperties().getProperty('SYNC_KEY') || '');
+}
+
+function replaceManagerSheetBody_(sheetName, headers, values, label) {
+  const lock=LockService.getScriptLock();
+  if(!lock.tryLock(15000))return {ok:false,message:'目前另一次同步尚未完成，請稍後再試：'+label};
+  let sheet=null,oldRows=0,oldValues=[],snapshotReady=false;
+  try{
+    sheet=ensureNamedSheet_(spreadsheet_(),sheetName,headers);
+    oldRows=Math.max(0,sheet.getLastRow()-1);
+    if(oldRows)oldValues=sheet.getRange(2,1,oldRows,headers.length).getValues();
+    snapshotReady=true;
+    // 先保留舊快照並完整寫入新資料，成功後才清除多餘舊列。
+    if(values.length)sheet.getRange(2,1,values.length,headers.length).setValues(values);
+    if(oldRows>values.length)sheet.getRange(2+values.length,1,oldRows-values.length,headers.length).clearContent();
+    SpreadsheetApp.flush();
+    return {ok:true};
+  }catch(err){
+    let restored=false;
+    if(sheet&&snapshotReady){
+      try{
+        if(oldRows)sheet.getRange(2,1,oldRows,headers.length).setValues(oldValues);
+        const writtenRows=Math.max(oldRows,values.length);
+        if(writtenRows>oldRows)sheet.getRange(2+oldRows,1,writtenRows-oldRows,headers.length).clearContent();
+        SpreadsheetApp.flush();restored=true;
+      }catch(_restoreErr){}
+    }
+    return {ok:false,message:label+'保存失敗：'+String(err&&err.message||err||'未知錯誤')+(restored?'；已回復同步前資料':'；請先不要重送並檢查試算表內容')};
+  }finally{
+    lock.releaseLock();
+  }
 }
 
 function employeeIdKey_(value) {
@@ -334,8 +370,6 @@ function syncPortalData_(rawJson) {
   let rows=[];
   try { rows=JSON.parse(rawJson || '[]'); } catch (_e) { return {ok:false,message:'portalDataJson 不是有效 JSON'}; }
   if (!Array.isArray(rows)) return {ok:false,message:'portalDataJson 必須是陣列'};
-  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_SHEET,PORTAL_HEADERS);
-  if (sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,PORTAL_HEADERS.length).clearContent();
   const values=[];
   const now=isoNow_();
   let scheduleRowsTotal=0;
@@ -367,7 +401,8 @@ function syncPortalData_(rawJson) {
     scheduleRowsTotal+=scheduleRows.length;
     values.push([id,payload,String(x.updatedAt||now)]);
   });
-  if(values.length)sheet.getRange(2,1,values.length,PORTAL_HEADERS.length).setValues(values);
+  const saved=replaceManagerSheetBody_(PORTAL_SHEET,PORTAL_HEADERS,values,'員工自助資料');
+  if(!saved.ok)return saved;
   return {ok:true,count:values.length,updatedAt:now,scheduleRows:scheduleRowsTotal,scheduleMonthCounts:scheduleMonthCounts,scheduleRowsByEmployee:scheduleRowsByEmployee};
 }
 
@@ -380,8 +415,6 @@ function syncPortalWorkPlan_(rawJson) {
   (Array.isArray(plan.months)?plan.months:[]).forEach(function(x){const m=String((x&&x.month)||'').slice(0,7);if(m)months[m]=true;});
   rows.forEach(function(r){const m=String((r&&(r.date||r.d))||'').slice(0,7);if(m)months[m]=true;});
   const monthList=Object.keys(months).sort();
-  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS);
-  if (sheet.getLastRow()>1) sheet.getRange(2,1,sheet.getLastRow()-1,PORTAL_WORK_PLAN_HEADERS.length).clearContent();
   const now=isoNow_(),values=[],monthCounts={},tooLarge=[];
   monthList.forEach(function(month){
     const monthRows=rows.filter(function(r){return String((r&&(r.date||r.d))||'').slice(0,7)===month;});
@@ -390,9 +423,10 @@ function syncPortalWorkPlan_(rawJson) {
     if(text.length>48000){tooLarge.push(month);return;}
     values.push([month,text,now]);monthCounts[month]=monthRows.length;
   });
-  if(values.length)sheet.getRange(2,1,values.length,PORTAL_WORK_PLAN_HEADERS.length).setValues(values);
   const itemCount=values.reduce(function(n,x){try{return n+(JSON.parse(String(x[1]||'{}')).rows||[]).length;}catch(_e){return n;}},0);
-  if(tooLarge.length)return {ok:false,message:'工作項目表月份資料過大，未完整保存：'+tooLarge.join('、'),months:values.map(function(x){return x[0];}),monthCounts:monthCounts,itemCount:itemCount,tooLargeMonths:tooLarge,updatedAt:now};
+  if(tooLarge.length)return {ok:false,message:'工作項目表月份資料過大，已保留原資料且未覆寫：'+tooLarge.join('、'),months:values.map(function(x){return x[0];}),monthCounts:monthCounts,itemCount:itemCount,tooLargeMonths:tooLarge,updatedAt:now};
+  const saved=replaceManagerSheetBody_(PORTAL_WORK_PLAN_SHEET,PORTAL_WORK_PLAN_HEADERS,values,'批次重大工作');
+  if(!saved.ok)return Object.assign(saved,{months:[],monthCounts:{},itemCount:0,updatedAt:now});
   return {ok:true,months:values.map(function(x){return x[0];}),monthCounts:monthCounts,itemCount:itemCount,updatedAt:now};
 }
 
@@ -717,10 +751,14 @@ function exportPortalRequests_(since) {
 function syncPortalRequestStatuses_(rawJson) {
   let statuses=[];try{statuses=JSON.parse(rawJson||'[]');}catch(_e){return {ok:false,message:'statusesJson 不是有效 JSON'};}
   if(!Array.isArray(statuses))return {ok:false,message:'statusesJson 必須是陣列'};
-  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS);
-  const rows=portalRequestRows_();const byId={};rows.forEach(function(x){byId[String(x.requestId||'')]=x;});let updated=0;
-  statuses.forEach(function(s){if(!s||typeof s!=='object')return;const row=byId[String(s.requestId||'')];if(!row)return;sheet.getRange(row._row,7).setValue(String(s.status||row.status||''));sheet.getRange(row._row,8).setValue(String(s.reviewNote||''));sheet.getRange(row._row,10).setValue(String(s.updatedAt||s.reviewedAt||isoNow_()));updated++;});
-  return {ok:true,updated:updated,received:statuses.length,updatedAt:isoNow_()};
+  const lock=LockService.getScriptLock();if(!lock.tryLock(15000))return {ok:false,message:'目前另一次申請同步尚未完成，請稍後再試'};
+  try{
+    const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_REQUEST_SHEET,PORTAL_REQUEST_HEADERS);
+    const rows=portalRequestRows_();const byId={};rows.forEach(function(x){byId[String(x.requestId||'')]=x;});let updated=0;
+    statuses.forEach(function(s){if(!s||typeof s!=='object')return;const row=byId[String(s.requestId||'')];if(!row)return;sheet.getRange(row._row,7).setValue(String(s.status||row.status||''));sheet.getRange(row._row,8).setValue(String(s.reviewNote||''));sheet.getRange(row._row,10).setValue(String(s.updatedAt||s.reviewedAt||isoNow_()));updated++;});
+    SpreadsheetApp.flush();
+    return {ok:true,updated:updated,received:statuses.length,updatedAt:isoNow_()};
+  }finally{lock.releaseLock();}
 }
 
 
@@ -741,8 +779,6 @@ function safeSalaryCalculation_(c) {
 function syncPortalPayslips_(rawJson) {
   let rows=[];try{rows=JSON.parse(rawJson||'[]');}catch(_e){return {ok:false,message:'payslipsJson 不是有效 JSON'};}
   if(!Array.isArray(rows))return {ok:false,message:'payslipsJson 必須是陣列'};
-  const sheet=ensureNamedSheet_(spreadsheet_(),PORTAL_PAYSLIP_SHEET,PORTAL_PAYSLIP_HEADERS);
-  if(sheet.getLastRow()>1)sheet.getRange(2,1,sheet.getLastRow()-1,PORTAL_PAYSLIP_HEADERS.length).clearContent();
   const values=[],now=isoNow_(),seen={};
   rows.forEach(function(x){
     if(!x||typeof x!=='object')return;
@@ -758,7 +794,8 @@ function syncPortalPayslips_(rawJson) {
     };
     values.push([employeeId,month,JSON.stringify(safe),String(x.lockedAt||x.generatedAt||now)]);
   });
-  if(values.length)sheet.getRange(2,1,values.length,PORTAL_PAYSLIP_HEADERS.length).setValues(values);
+  const saved=replaceManagerSheetBody_(PORTAL_PAYSLIP_SHEET,PORTAL_PAYSLIP_HEADERS,values,'正式薪資單');
+  if(!saved.ok)return saved;
   return {ok:true,count:values.length,updatedAt:now};
 }
 

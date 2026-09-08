@@ -1,8 +1,8 @@
-// W441 FIX377｜public configuration only.
-// `version` identifies the W441 data-linkage-safe payroll bridge schema.
+// W451 FIX387｜public configuration only.
+// `version` identifies the exact employee portal / Apps Script bridge schema.
 // Never place SYNC_KEY or employee PIN here.
 window.WTS_ATTENDANCE_CONFIG = {
-  version: 'W449_FIX385_CLEAN',
+  version: 'W451_FIX387_CLEAN',
   bridgeUrl: 'https://script.google.com/macros/s/AKfycbyBAEv9EApCg5FBNovwmpk2pjW8T-ssqnbSSwHogYKtL8b-svB0SGghk7qVXeBcleoT/exec',
   farmName: '王泰山畜牧場',
   requireGps: true,
