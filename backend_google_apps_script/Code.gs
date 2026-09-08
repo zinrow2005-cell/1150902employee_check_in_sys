@@ -1,5 +1,5 @@
 /**
- * W451 FIX387 CLEAN｜王泰山畜牧場員工自助中心｜連線／版本／SYNC_KEY 診斷橋接
+ * W455 FIX391 CLEAN｜王泰山畜牧場員工自助中心｜連線／版本／SYNC_KEY 診斷橋接
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W451_FIX387_CLEAN';
+const BRIDGE_VERSION = 'W455_FIX391_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -192,7 +192,7 @@ function doPost(e) {
   const requestId = String(p.requestId || '');
   try {
     if (action === 'health') {
-      return json_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
+      return bridgeHtml_({ok:true, requestId:requestId, service:'WTS attendance bridge', version:BRIDGE_VERSION, initialized:isInitialized_(), timezone:TAIPEI_TZ, now:isoNow_()});
     }
     if (action === 'export') {
       const props = PropertiesService.getScriptProperties();

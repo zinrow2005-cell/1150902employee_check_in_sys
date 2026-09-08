@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W451 FIX387 | batch-work single center; personal task assignment/reporting retired.
+  // W455 FIX391 | batch-work single center; personal task assignment/reporting retired.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -101,8 +101,8 @@
     });
   }
   async function verifyBridgeVersion(){
-    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W451_FIX387_CLEAN'),cached:true};
-    const expected=String(CFG.version||'W451_FIX387_CLEAN');
+    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W455_FIX391_CLEAN'),cached:true};
+    const expected=String(CFG.version||'W455_FIX391_CLEAN');
     const d=await postBridge('health',{},10000);
     const remote=String(d.version||'').trim();
     if(!remote)throw new Error(`Apps Script 有回應，但沒有版本號；目前很可能仍是舊部署。請重新部署 ${expected} Code.gs。`);
