@@ -1,6 +1,6 @@
 (function(){
   'use strict';
-  // W456 FIX392 | batch-work single center; personal task assignment/reporting retired.
+  // W456 FIX392-R1 | login compatibility hotfix; batch-work single center; personal task assignment/reporting retired.
   const CLIENT_ANY_COOLDOWN_MS=30*1000;
   const CLIENT_SAME_TYPE_COOLDOWN_MS=3*60*1000;
   const LINE_SHARE_COOLDOWN_MS=15*1000;
@@ -96,28 +96,33 @@
     if(!bridgeReady())return Promise.reject(new Error(bridgeConfigIssue()));
     const requestId=randomId();
     return new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error(`雲端橋接逾時：目前使用 ${bridgeEndpointLabel()}，Apps Script 沒有回傳結果。請確認這個 /exec 就是你剛部署的 Web App，且存取權限允許員工手機直接開啟。`));},timeoutMs);
-      pending.set(requestId,{resolve,reject,timer});
+      const timer=setTimeout(()=>{pending.delete(requestId);reject(new Error(`雲端橋接逾時：${action} 沒有收到 Apps Script 回傳；目前使用 ${bridgeEndpointLabel()}。請確認 /exec 與 Web App 存取權限。`));},timeoutMs);
+      pending.set(requestId,{resolve,reject,timer,action});
       const form=document.createElement('form');form.method='POST';form.action=bridgeUrl;form.target='bridgeFrame';form.style.display='none';
       const payload=Object.assign({},data,{action,requestId});
       Object.entries(payload).forEach(([k,v])=>{const input=document.createElement('input');input.type='hidden';input.name=k;input.value=v==null?'':(typeof v==='object'?JSON.stringify(v):String(v));form.appendChild(input);});
       document.body.appendChild(form);form.submit();setTimeout(()=>form.remove(),500);
     });
   }
-  async function verifyBridgeVersion(){
-    if(state.bridgeVersionVerified)return {version:String(CFG.version||'W456_FIX392_CLEAN'),cached:true};
-    const expected=String(CFG.version||'W456_FIX392_CLEAN');
-    const d=await postBridge('clientHandshake',{},10000);
-    const remote=String(d.version||'').trim();
-    if(!remote)throw new Error(`Apps Script 有回應，但沒有版本號；目前很可能仍是舊部署。請重新部署 ${expected} Code.gs。`);
-    if(remote!==expected)throw new Error(`Apps Script 版本不一致：線上是 ${remote}，員工端需要 ${expected}。請先建立新版部署。`);
+  async function probeBridgeVersion(){
+    // FIX392-R1: health is a diagnostics-only probe. Login must never depend on a newly-added
+    // handshake action, otherwise an already-working older bridge can be locked out by the client.
+    const d=await postBridge('health',{},8000);
     if(d.initialized===false)throw new Error('Apps Script 尚未完成初始化，請先執行 SETUP_ATTENDANCE_BRIDGE。');
-    state.bridgeVersionVerified=true;
+    const remote=String(d.version||'').trim();
+    if(remote)state.bridgeVersionVerified=true;
     return d;
   }
   window.addEventListener('message',ev=>{
     const d=ev.data;if(!d||d.channel!==BRIDGE_CHANNEL||!d.requestId)return;
-    const p=pending.get(d.requestId);if(!p)return;clearTimeout(p.timer);pending.delete(d.requestId);d.ok?p.resolve(d):p.reject(new Error(d.message||'雲端橋接失敗'));
+    const p=pending.get(d.requestId);if(!p)return;clearTimeout(p.timer);pending.delete(d.requestId);
+    if(d.ok){p.resolve(d);return;}
+    const raw=String(d.message||'雲端橋接失敗');
+    if(/未知\s*action/i.test(raw)){
+      p.reject(new Error(`Apps Script 不認識「${p.action}」動作。這通常代表員工端與線上 Code.gs 版本不同；登入流程已避免使用額外握手 action，若此訊息仍出現在 login，請確認 /exec 指向員工橋接專案。`));
+      return;
+    }
+    p.reject(new Error(raw));
   });
   function restoreEmployee(){
     if(state.employee&&state.token&&state.sessionExpiresAt>Date.now()){
@@ -136,7 +141,7 @@
     if(state.busy)return;const id=$('employeeId').value.trim();const pin=$('employeePin').value.trim();
     if(!id||!pin){status($('loginStatus'),'請輸入員工編號與打卡 PIN。','error');return;}
     state.busy=true;$('loginBtn').disabled=true;status($('loginStatus'),'正在驗證員工身分…');
-    try{await verifyBridgeVersion();const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;state.sessionExpiresAt=storeSavedLogin(state.token,state.employee,Number(d.sessionExpiresAtMs)||Date.now()+LOGIN_REMEMBER_MS);localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();}
+    try{const d=await postBridge('login',{employeeId:id,pin});state.token=d.sessionToken;state.employee=d.employee;state.sessionExpiresAt=storeSavedLogin(state.token,state.employee,Number(d.sessionExpiresAtMs)||Date.now()+LOGIN_REMEMBER_MS);localStorage.setItem('wts_att_employee_id',String(d.employee?.id||id));$('employeeId').value=String(d.employee?.id||id);$('employeePin').value='';showPunch();probeBridgeVersion().catch(()=>{});}
     catch(e){status($('loginStatus'),e.message,'error');}
     finally{state.busy=false;$('loginBtn').disabled=false;}
   }
@@ -298,7 +303,7 @@
     if(!state.token||state.portalBusy)return;state.portalBusy=true;
     if($('portalStatusBadge'))$('portalStatusBadge').textContent='同步中';
     try{
-      await verifyBridgeVersion();const d=await postBridge('portalData',{sessionToken:state.token},15000);state.portal=d.portal||{};renderPortalData();
+      const d=await postBridge('portalData',{sessionToken:state.token},15000);state.portal=d.portal||{};renderPortalData();
       if($('portalStatusBadge'))$('portalStatusBadge').textContent='已同步';
       setPortalSyncSuccess(state.portal.updatedAt||d.serverNow||'');
     }catch(e){
@@ -902,8 +907,11 @@
     if(!bridgeReady()){status($('setupStatus'),bridgeConfigIssue(),'error');return;}
     const btn=$('testBridgeBtn');if(btn)btn.disabled=true;status($('setupStatus'),'正在測試 Apps Script 回傳…');
     try{
-      const d=await verifyBridgeVersion();
-      status($('setupStatus'),`雲端橋接正常｜${d.version}｜${d.now||'已收到 Apps Script 回傳'}`,'ok');
+      const d=await probeBridgeVersion();
+      const remote=String(d.version||'未提供版本');
+      const current=String(CFG.version||'W456_FIX392_CLEAN');
+      const note=remote!==current?`｜線上橋接 ${remote}（登入核心相容；不阻擋登入）`:'';
+      status($('setupStatus'),`雲端橋接正常｜${remote}｜${d.now||'已收到 Apps Script 回傳'}${note}`,'ok');
     }
     catch(e){status($('setupStatus'),e.message||String(e),'error');}
     finally{if(btn)btn.disabled=false;}

@@ -1,3 +1,3 @@
 # Current deployment
 
-GitHub 員工自助端：W456 FIX392。Apps Script bridge：W456_FIX392_CLEAN。若 Apps Script 建立新的 Web App /exec，請在「橋接設定」貼上；本版會保留這台裝置的自訂網址，不再被 config.js 覆蓋。
+GitHub 員工自助端：W456 FIX392-R1。Apps Script bridge 可沿用既有 W451/W455/W456 的正式部署；本熱修正將登入改為直接呼叫 `login`，不再以新增的 `clientHandshake` 阻擋登入。橋接測試改用既有 `health`，版本差異只做診斷、不阻擋登入。

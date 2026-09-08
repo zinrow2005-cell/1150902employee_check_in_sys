@@ -1,5 +1,5 @@
 /**
- * W456 FIX392 CLEAN｜王泰山畜牧場員工自助中心｜連線／版本／SYNC_KEY 診斷橋接
+ * W456 FIX392-R1 OPTIONAL｜王泰山畜牧場員工自助中心｜相容診斷強化（協定仍為 W456_FIX392_CLEAN）
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -188,7 +188,7 @@ function doGet(e) {
 
 function doPost(e) {
   const p = (e && e.parameter) || {};
-  const action = String(p.action || '');
+  const action = String(p.action || p.ACTION || p.op || '').trim();
   const requestId = String(p.requestId || '');
   try {
     if (action === 'health') {
@@ -240,7 +240,7 @@ function doPost(e) {
     if (action === 'portalWithdrawRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalWithdrawRequest_(p)));
     if (action === 'portalCancelLeaveRequest') return bridgeHtml_(Object.assign({requestId:requestId}, portalCancelLeaveRequest_(p)));
     if (action === 'punch') return bridgeHtml_(Object.assign({requestId:requestId}, punch_(p)));
-    return bridgeHtml_({ok:false, requestId:requestId, message:'未知 action'});
+    return bridgeHtml_({ok:false, code:'unknown_action', action:action, requestId:requestId, message:'未知 action：'+(action||'(空白)')});
   } catch (err) {
     const msg=String(err && err.message || err || '伺服器錯誤');
     const managerJsonActions=['export','syncEmployees','syncPortalData','exportPortalRequests','syncPortalRequestStatuses','syncPortalPayslips','syncPortalWorkPlan'];
