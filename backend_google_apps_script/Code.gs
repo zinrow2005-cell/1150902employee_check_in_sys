@@ -1,5 +1,5 @@
 /**
- * W456 FIX392-R1 OPTIONAL｜王泰山畜牧場員工自助中心｜相容診斷強化（協定仍為 W456_FIX392_CLEAN）
+ * W456 FIX392-R5 CURRENT｜王泰山畜牧場員工自助中心（打卡回傳／桌機鏡頭修正版）
  *
  * 第一次設定只需要：
  * 1. 將本檔完整貼到 Apps Script 的 Code.gs
@@ -8,7 +8,7 @@
  * 4. 再執行 SHOW_SYNC_KEY 查看同步金鑰
  */
 
-const BRIDGE_VERSION = 'W456_FIX392_CLEAN';
+const BRIDGE_VERSION = 'W456_FIX392_R5_CLEAN';
 const PUNCH_ANY_COOLDOWN_SECONDS = 30;
 const PUNCH_SAME_TYPE_COOLDOWN_SECONDS = 180;
 const ATTENDANCE_SHEET = 'Attendance';
@@ -911,17 +911,41 @@ function findRecentPunch_(sheet, employeeId, type, now) {
   return null;
 }
 
+function normalizeAttendanceSheetValue_(key,value) {
+  if(value===null||value===undefined)return '';
+  if(key==='date')return normalizePortalSheetDate_(value);
+  if(key==='dateTime'||key==='serverCreatedAt'||key==='photoTakenAtClient')return normalizePortalSheetDateTime_(value);
+  if(key==='time'){
+    if(Object.prototype.toString.call(value)==='[object Date]'&&!isNaN(value.getTime()))return Utilities.formatDate(value,TAIPEI_TZ,'HH:mm:ss');
+    const raw=String(value).trim();const m=/(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+    return m?String(m[1]).padStart(2,'0')+':'+m[2]+':'+(m[3]||'00'):raw;
+  }
+  return value;
+}
+
+function normalizeAttendanceRecord_(row,headers) {
+  const obj={};headers.forEach(function(h,i){obj[h]=normalizeAttendanceSheetValue_(h,row[i]);});
+  obj.photoConfirmed = String(obj.photoConfirmed).toLowerCase()==='true' || obj.photoConfirmed===true;
+  obj.lineShared = String(obj.lineShared).toLowerCase()==='true' || obj.lineShared===true;
+  return obj;
+}
+
+function attendanceRecordAfterCursor_(record,since) {
+  if(!since)return true;
+  const raw=normalizePortalSheetDateTime_(record.serverCreatedAt||record.dateTime||'');
+  const cursor=normalizePortalSheetDateTime_(since);
+  const t=Date.parse(raw),c=Date.parse(cursor);
+  if(!isNaN(t)&&!isNaN(c))return t>c;
+  return String(raw||'')>String(cursor||'');
+}
+
 function exportRecords_(since) {
   const sheet = ensureSheet_(spreadsheet_());
   const values = sheet.getDataRange().getValues();
   if (values.length <= 1) return {ok:true, records:[], count:0, generatedAt:isoNow_()};
   const headers = values[0].map(String);
-  const rows = values.slice(1).map(function(row){
-    const obj={};headers.forEach(function(h,i){obj[h]=row[i];});
-    obj.photoConfirmed = String(obj.photoConfirmed).toLowerCase()==='true' || obj.photoConfirmed===true;
-    obj.lineShared = String(obj.lineShared).toLowerCase()==='true' || obj.lineShared===true;
-    return obj;
-  }).filter(function(r){return !since || String(r.serverCreatedAt||r.dateTime||'') > since;});
+  const rows = values.slice(1).map(function(row){return normalizeAttendanceRecord_(row,headers);})
+    .filter(function(r){return attendanceRecordAfterCursor_(r,since);});
   return {ok:true, records:rows, count:rows.length, generatedAt:isoNow_()};
 }
 
@@ -931,10 +955,7 @@ function findRecord_(sheet, recordId) {
   const match = sheet.getRange(2,1,last-1,1).createTextFinder(recordId).matchEntireCell(true).findNext();
   if (!match) return null;
   const row = sheet.getRange(match.getRow(),1,1,HEADERS.length).getValues()[0];
-  const out={};HEADERS.forEach(function(h,i){out[h]=row[i];});
-  out.photoConfirmed = String(out.photoConfirmed).toLowerCase()==='true' || out.photoConfirmed===true;
-  out.lineShared = String(out.lineShared).toLowerCase()==='true' || out.lineShared===true;
-  return out;
+  return normalizeAttendanceRecord_(row,HEADERS);
 }
 
 function syncEmployees_(rawJson) {
