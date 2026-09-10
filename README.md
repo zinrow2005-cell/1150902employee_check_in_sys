@@ -1,4 +1,4 @@
-# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R6-ORG1-H4
+# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R6-ORG1-H2
 
 本資料夾是 GitHub Pages 正式員工端。
 
@@ -9,10 +9,4 @@
 - Apps Script bridge protocol：`W456_FIX392_R5_CLEAN`。
 - 上傳 GitHub 時，請將 CLEAN 上傳包解壓後的內容直接覆蓋 repository 根目錄。
 
-若畫面右上角不是 **W456 FIX392-R6-ORG1-H4**，代表瀏覽器／PWA 仍在使用舊 GitHub build。
-
-
-## H4｜請假數量自動計算
-- 「日」與「連續曆日」：選擇開始／結束日期後，自動以含起訖日方式計算天數，數量欄改為唯讀。
-- 「小時」：維持依開始／結束時間自動計算小時，數量欄同步顯示唯讀結果。
-- 「半日」：仍以半日次數輸入，不強制改成日期區間。
+若畫面右上角不是 **W456 FIX392-R6-ORG1-H2**，代表瀏覽器／PWA 仍在使用舊 GitHub build。
