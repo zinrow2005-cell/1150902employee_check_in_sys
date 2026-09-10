@@ -1,4 +1,4 @@
-# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R6-ORG1-H2
+# 王泰山畜牧場｜GitHub 員工自助端 W456 FIX392-R6-ORG1-H8
 
 本資料夾是 GitHub Pages 正式員工端。
 
@@ -9,4 +9,4 @@
 - Apps Script bridge protocol：`W456_FIX392_R5_CLEAN`。
 - 上傳 GitHub 時，請將 CLEAN 上傳包解壓後的內容直接覆蓋 repository 根目錄。
 
-若畫面右上角不是 **W456 FIX392-R6-ORG1-H2**，代表瀏覽器／PWA 仍在使用舊 GitHub build。
+若畫面右上角不是 **W456 FIX392-R6-ORG1-H8**，代表瀏覽器／PWA 仍在使用舊 GitHub build。

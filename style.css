@@ -173,6 +173,6 @@ body.camera-live{overflow:hidden;overscroll-behavior:none;touch-action:none}
   .camera-wrap.camera-fullscreen .camera-stamp-time{font-size:36px!important}
 }
 
-/* W456 FIX392-R6-ORG1-H2 | hourly leave time range + closed request history */
+/* W456 FIX392-R6-ORG1-H8 | hourly leave time range + closed request history */
 .leave-time-wrap{margin:10px 0 12px;padding:12px;border:1px solid #cfe0d5;border-radius:16px;background:#f4faf6}.leave-time-head{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}.leave-time-head b{font-size:16px}.leave-time-head span{font-size:13px;color:#54705e}.leave-time-grid input[type="time"]{font-size:17px;font-weight:700}.request-ended{margin-top:12px;border:1px dashed #cfd8d1;border-radius:14px;background:#f8faf8}.request-ended summary{cursor:pointer;padding:12px 14px;font-weight:800;color:#58705f}.request-ended-list{padding:0 10px 10px}.request-ended-list .record{opacity:.78}.request-actions .withdraw{white-space:nowrap}
 @media(max-width:600px){.leave-time-wrap{padding:10px}.leave-time-head b{font-size:17px}.leave-time-head span{font-size:13px}.leave-time-grid{grid-template-columns:1fr 1fr}.leave-time-grid input[type="time"]{font-size:18px}}
